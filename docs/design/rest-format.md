@@ -197,13 +197,20 @@ Common mock-server capabilities. Recommend v1 vs. later:
 
 ## 9. Open decisions (consolidated)
 
-1. Swagger/OpenAPI 2.0 support — recommend **no** for v1.
-2. External/remote `$ref` — recommend **unsupported with clear error** for v1.
-3. `resources:`/`routes:`/`collections:` block name and whether it's inferred from the spec.
-4. Configurable id field name & default (recommend `idField`, default `"id"`).
-5. Spec `examples` as implicit seed (recommend: only when no explicit `data:`).
-6. Pagination default shape (recommend `limit`/`offset`, schema-envelope synthesis).
-7. Filtering/sorting query conventions (recommend minimal `?field=` + `?sort=`).
-8. PUT upsert vs 404; validation failure status 422 vs 400.
-9. Auth / latency / fault-injection scope for v1.
-10. Non-JSON content types timing.
+All items **decided with the project owner on 2026-07-12**:
+
+1. Swagger/OpenAPI 2.0 — ✅ **no** for v1 (convertible upstream).
+2. External/remote `$ref` — ✅ **unsupported with a clear error** for v1.
+3. Seed block — ✅ named **`resources:`**, inferred from the spec when one is present
+   (explicit block overrides inference).
+4. Id field — ✅ configurable **`idField`** per resource, default `"id"`.
+5. Spec `examples` as implicit seed — ✅ only when no explicit `data:` exists for that schema.
+6. Pagination — ✅ `limit`/`offset` default; envelope synthesis when the list response schema
+   is an envelope. Cursor pagination deferred.
+7. Filtering/sorting — ✅ `?field=value` equality filter, `?sort=field` / `?sort=-field`.
+8. CRUD semantics — ✅ PUT replaces only (**404** when absent); body-validation failures →
+   **422** with field-path diagnostics (400 stays for malformed syntax).
+9. v1 cross-cutting scope — ✅ **all three**: latency + fault injection (`.delay(_)`,
+   `failNext(status:)`), bearer auth simulation (`.bearer(validTokens:)` → 401), and
+   permissive-localhost CORS/preflight defaults.
+10. Non-JSON content types — ✅ later milestone; JSON-only v1 (unsupported `Accept` → 406).

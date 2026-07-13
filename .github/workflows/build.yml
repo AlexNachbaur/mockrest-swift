@@ -1,0 +1,65 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  macos:
+    name: Build & Test (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  linux:
+    name: Build & Test (Linux)
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  android:
+    name: Build & Test (Android)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and test on Android emulator
+        uses: skiptools/swift-android-action@v2
+        with:
+          # The official Swift SDK for Android starts at Swift 6.3; the package's
+          # swift-tools-version 6.1 manifest builds fine under the newer toolchain.
+          swift-version: '6.3'
+          android-api-level: 28
+          free-disk-space: true
+
+  # TODO: Windows CI configuration / build scripts (mirrors mockql-swift).
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v5
+      - name: swift-format
+        run: swift format lint --strict --recursive Sources Tests Package.swift
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build DocC documentation
+        run: swift package generate-documentation --target MockRESTCore --target MockREST --analyze
