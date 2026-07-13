@@ -1,0 +1,29 @@
+# MockREST
+
+> Stateful REST mocking server in Swift for UI-test automation. Ingests an OpenAPI 3.0/3.1
+> spec (and/or a Swift result-builder endpoint DSL), seeds state from validated YAML/JSON,
+> auto-wires CRUD with filtering/sorting/pagination and real-world status semantics, fills
+> unseeded fields with deterministic generated data, and serves JSON on localhost. Includes
+> fault injection (failNext), latency, bearer-auth simulation, and CORS.
+
+Swift 6.1+, SPM package with two libraries: `MockREST` (server) and `MockRESTCore` (portable,
+NIO-free engine). Test-time tool only. Built on the MockCore platform: register the engine on
+a shared `MockHost` next to MockQL and both protocols answer one port with one shared state
+store.
+
+## Reference
+
+- [README](https://raw.githubusercontent.com/AlexNachbaur/mockrest-swift/main/README.md): overview, quick start, seeding, installation
+- [REST format specification](https://raw.githubusercontent.com/AlexNachbaur/mockrest-swift/main/docs/design/rest-format.md): spec ingestion, state model, seed format, CRUD semantics, settled decisions
+- [Platform architecture](https://raw.githubusercontent.com/AlexNachbaur/mockrest-swift/main/docs/design/architecture.md): the MockCore platform and the MockService seam
+- [API documentation](https://swiftpackageindex.com/AlexNachbaur/mockrest-swift/documentation): DocC for both modules
+
+## Related packages
+
+- [MockCore](https://github.com/AlexNachbaur/mockcore-swift): the shared platform foundation
+- [MockQL](https://github.com/AlexNachbaur/mockql-swift): the GraphQL sibling extension
+
+## Contributing
+
+- [AGENTS.md](https://raw.githubusercontent.com/AlexNachbaur/mockrest-swift/main/AGENTS.md): instructions for agents working in this repository
+- [CONTRIBUTING](https://raw.githubusercontent.com/AlexNachbaur/mockrest-swift/main/CONTRIBUTING.md): style rules and PR process

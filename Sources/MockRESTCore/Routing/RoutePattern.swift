@@ -13,7 +13,7 @@ public struct RoutePattern: Sendable, Hashable, CustomStringConvertible {
 
     /// Parses a template. Segments wrapped in `{…}` are parameters; anything else is literal.
     ///
-    /// - Throws: A configuration ``MockCore/MockError`` for an empty template, a template not
+    /// - Throws: A configuration `MockError` for an empty template, a template not
     ///   starting with `/`, an empty or unclosed `{parameter}`, or a duplicate parameter name.
     public init(parsing template: String) throws {
         guard template.hasPrefix("/") else {
