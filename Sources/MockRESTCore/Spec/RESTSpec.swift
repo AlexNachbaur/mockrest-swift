@@ -7,6 +7,9 @@ struct RESTSpec: Sendable {
     var schemas: [String: SchemaNode] = [:]
     /// Schema-level `example` values, used to seed state when no explicit seed data exists.
     var schemaExamples: [String: MockValue] = [:]
+    /// Named schemas that are themselves nullable (3.1 `type: [T, "null"]` or a `oneOf` with a
+    /// null variant), so `$ref`s to them accept explicit nulls.
+    var nullableSchemas: Set<String> = []
     /// Every operation under `paths`.
     var operations: [SpecOperation] = []
 

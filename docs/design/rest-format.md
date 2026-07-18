@@ -39,7 +39,9 @@ let server = try await MockRESTServer.start(
   models, then validate. This honors the platform's "hand-written for diagnostics + portability,
   no heavy deps" rule without the cost of a real grammar parser.
 - **What we consume:** `paths` → operations (method, `parameters`, `requestBody`, `responses`),
-  `components.schemas`, `components.parameters/requestBodies/responses`, and `example`/`examples`.
+  `components.schemas`, and `example`/`examples`. `$ref`s into
+  `components.parameters/requestBodies/responses` are rejected with clear "not supported in v1"
+  errors — inline those definitions.
   `$ref` is resolved (internal refs for v1; **[OPEN]** external/remote refs — recommend
   unsupported-with-clear-error for v1). `servers`, `security` schemes → see §8.
 - **Diagnostics:** unknown `$ref` targets, schemas referencing missing components, malformed
@@ -141,8 +143,9 @@ CRUD against the shared store, all overridable by a DSL endpoint of the same met
   connection, synthesize that shape instead — schema-driven, analogous to MockQL's connection
   synthesis. Cursor pagination as an opt-in.
 - **Filtering/sorting [OPEN].** Recommend a small convention: `?field=value` filters by equality,
-  `?sort=field`/`?sort=-field` sorts. Kept minimal and documented; complex query semantics are a
-  non-goal (this is a test mock, not a query engine).
+  `?sort=field`/`?sort=-field` sorts. Filters match **stored** values; fields filled by
+  generators at read time are not filterable. Kept minimal and documented; complex query
+  semantics are a non-goal (this is a test mock, not a query engine).
 - **Validation.** POST/PUT/PATCH bodies validate against the request/schema; violations → 422 (or
   400 **[OPEN]**) with field-path diagnostics.
 - **Auto-CRUD is opt-in-per-resource, not global** — a resource only gets CRUD if it's declared as
@@ -178,7 +181,9 @@ Post("/orders") { req, state in
 At `willStart()` MockREST validates the whole configuration and refuses to start on any error:
 unknown `$ref`; seed record for an unknown schema (with suggestions); seed field not in schema;
 dangling reference; duplicate id; enum/format/scalar mismatch; a DSL route whose path params
-don't appear in its template; a route colliding with GraphQL's `/graphql`. Every diagnostic
+don't appear in its template; circular `$ref` alias chains. (Cross-service path precedence —
+e.g. coexisting with GraphQL's `/graphql` — is governed by `MockHost` registration order.)
+Every diagnostic
 carries the file + JSON/YAML path and, where applicable, a "did you mean".
 
 ## 8. Cross-cutting features — proposed scope

@@ -96,9 +96,8 @@ public struct Resource: MockRESTDeclaration {
     ///
     /// - Parameters:
     ///   - name: The collection name, e.g. `"users"`.
-    ///   - schema: The schema/type records belong to; defaults to the capitalized singular of
-    ///     `name` is **not** guessed — it defaults to `name` itself. Pass it explicitly when a
-    ///     spec is present.
+    ///   - schema: The schema/type records belong to. Defaults to `name` itself (never guessed
+    ///     from the plural); pass it explicitly when a spec is present.
     ///   - path: The base path; defaults to `"/" + name`.
     ///   - idField: The id field name; defaults to `"id"`.
     public init(_ name: String, schema: String? = nil, path: String? = nil, idField: String = "id") {

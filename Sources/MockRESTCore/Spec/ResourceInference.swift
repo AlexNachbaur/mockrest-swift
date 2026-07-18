@@ -6,6 +6,7 @@ import MockCore
 struct ResourceInference {
     static func infer(from spec: RESTSpec) -> [ResourceModel] {
         var byBasePath: [String: [SpecOperation]] = [:]
+        var hasItemPath: Set<String> = []
         for operation in spec.operations {
             let segments = operation.pattern.segments
             if segments.count >= 1, case .parameter = segments[segments.count - 1] {
@@ -18,6 +19,7 @@ struct ResourceInference {
                 // Only infer flat collections: /things/{id}, not /a/{x}/b/{y}.
                 guard segments.count == 2 else { continue }
                 byBasePath[base, default: []].append(operation)
+                hasItemPath.insert(base)
             } else if segments.allSatisfy({
                 guard case .literal = $0 else { return false }
                 return true
@@ -33,6 +35,23 @@ struct ResourceInference {
             guard let schemaName = schemaName(for: operations, spec: spec) else { continue }
             guard let properties = spec.objectProperties(of: schemaName), properties["id"] != nil else {
                 continue
+            }
+            // A lone literal path is a collection only when its GET actually returns a list —
+            // otherwise singleton/RPC endpoints (/me, /login, /orders/latest) would be
+            // misinferred and their synthesis routes overwritten by CRUD handlers.
+            if !hasItemPath.contains(basePath) {
+                let listShaped = operations.contains { operation in
+                    guard operation.method == "GET" else { return false }
+                    switch operation.responseSchema {
+                    case .array(of: .reference):
+                        return true
+                    case .object:
+                        return envelope(for: operations, itemSchema: schemaName, spec: spec) != nil
+                    default:
+                        return false
+                    }
+                }
+                guard listShaped else { continue }
             }
             let itemParamName = operations.compactMap { operation -> String? in
                 operation.pattern.parameterNames.first

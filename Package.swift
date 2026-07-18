@@ -21,9 +21,7 @@ let package = Package(
         // diagnostics, and the MockHost/MockService transport.
         .package(url: "https://github.com/AlexNachbaur/mockcore-swift.git", from: "0.1.0"),
         // Test-only: the cross-protocol integration test serves REST + GraphQL on one MockHost.
-        // TODO: switch to a version requirement once mockql-swift tags its MockCore-based
-        // release (the mockcore-extraction branch is that work).
-        .package(url: "https://github.com/AlexNachbaur/mockql-swift.git", branch: "mockcore-extraction"),
+        .package(url: "https://github.com/AlexNachbaur/mockql-swift.git", from: "0.2.0"),
         // Build-time only: enables `swift package generate-documentation`.
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.0"),
     ],

@@ -123,7 +123,7 @@ public final class MockRESTEngine: Sendable {
         }
         if let spec {
             for operation in spec.operations {
-                register(Self.synthesisRoute(for: operation, synthesizer: synthesizer))
+                register(Self.synthesisRoute(for: operation, synthesizer: synthesizer, spec: spec))
             }
         }
         let specOperationKeys = Set((spec?.operations ?? []).map { "\($0.method) \($0.pattern.template)" })
@@ -169,12 +169,6 @@ public final class MockRESTEngine: Sendable {
         if let delay = options.delay {
             try? await Task.sleep(for: delay)
         }
-        if let status = await faults.next() {
-            return decorate(
-                .errors(status: status, [(message: "Injected failure (failNext)", path: nil)]),
-                for: request
-            )
-        }
         if request.method == "OPTIONS", options.cors {
             return preflight(request)
         }
@@ -205,6 +199,14 @@ public final class MockRESTEngine: Sendable {
                     allowed.append(route.method)
                 }
                 continue
+            }
+            // Injected faults consume only requests that actually matched a route — a CORS
+            // preflight or a stray 404 must not eat the failure a test queued for its real call.
+            if let status = await faults.next() {
+                return decorate(
+                    .errors(status: status, [(message: "Injected failure (failNext)", path: nil)]),
+                    for: request
+                )
             }
             let matched = request.with(pathParams: params)
             do {
@@ -291,11 +293,48 @@ public final class MockRESTEngine: Sendable {
 
     /// A synthesis handler for a spec operation with no stored collection behind it: serves the
     /// declared example, else a stable generated body from the response schema.
-    private static func synthesisRoute(for operation: SpecOperation, synthesizer: ResponseSynthesizer)
-        -> EngineRoute
-    {
+    private static func synthesisRoute(
+        for operation: SpecOperation,
+        synthesizer: ResponseSynthesizer,
+        spec: RESTSpec
+    ) -> EngineRoute {
         let pseudoType = "\(operation.method) \(operation.pattern.template)"
-        return EngineRoute(method: operation.method, pattern: operation.pattern) { _, state in
+        return EngineRoute(method: operation.method, pattern: operation.pattern) { request, state in
+            // The spec's declared request body is enforced even without a stored collection
+            // behind the route.
+            if let bodySchema = operation.requestBody {
+                if request.body.isNull {
+                    if operation.requestBodyRequired {
+                        return .errors(status: 422, [(message: "A request body is required", path: "body")])
+                    }
+                } else {
+                    // References in the body are checked against current state, matching
+                    // AutoCRUD's request validation.
+                    let snapshot = state
+                    let dangling = DanglingReference()
+                    let coercion = SchemaCoercion(
+                        spec: spec,
+                        category: .seed,
+                        sourceName: nil,
+                        recordReference: { typeName, id, referencePath in
+                            if snapshot[typeName, id: id].isNull, dangling.first == nil {
+                                dangling.first = (typeName, id, referencePath)
+                            }
+                        }
+                    )
+                    do {
+                        _ = try coercion.coerceBody(request.body, to: bodySchema, at: "body")
+                    } catch let error as MockError {
+                        return .errors(status: 422, [(message: error.message, path: error.documentPath)])
+                    }
+                    if let (typeName, id, referencePath) = dangling.first {
+                        return .errors(
+                            status: 422,
+                            [(message: "No '\(typeName)' record with id '\(id)'", path: referencePath)]
+                        )
+                    }
+                }
+            }
             if let example = operation.responseExample {
                 return .status(operation.successStatus, body: example)
             }
@@ -384,10 +423,15 @@ public final class MockRESTEngine: Sendable {
                 sourceName: nil,
                 recordReference: { _, _, _ in }
             )
+            let idField = resources.first { $0.schema == schemaName }?.idField ?? "id"
             let coerced: [String: MockValue]
             do {
                 coerced = try coercion.coerceRecord(
-                    fields, schemaName: schemaName, at: "components.schemas.\(schemaName).example")
+                    fields,
+                    schemaName: schemaName,
+                    at: "components.schemas.\(schemaName).example",
+                    idField: idField
+                )
             } catch let error as MockError {
                 throw MockError(
                     category: .schema,
@@ -396,7 +440,6 @@ public final class MockRESTEngine: Sendable {
                 )
             }
             var record = coerced
-            let idField = resources.first { $0.schema == schemaName }?.idField ?? "id"
             if let id = record[idField]?.stringValue {
                 record["id"] = .string(id)
             } else if let number = record[idField]?.intValue {
@@ -406,4 +449,9 @@ public final class MockRESTEngine: Sendable {
             data.insert(type: schemaName, fields: record)
         }
     }
+}
+
+/// Mutable capture for the synthesis-route reference check.
+private final class DanglingReference {
+    var first: (String, String, String)?
 }

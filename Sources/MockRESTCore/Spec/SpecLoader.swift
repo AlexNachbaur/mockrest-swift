@@ -42,6 +42,11 @@ struct SpecLoader {
                 guard let value = schemas[name] else { continue }
                 let path = "components.schemas.\(name)"
                 spec.schemas[name] = try parseNode(value, at: path)
+                let fields = value.objectValue ?? [:]
+                let (_, typeListNullable) = try parseType(fields["type"], at: path)
+                if typeListNullable || fields["nullable"]?.boolValue == true || Self.unionDeclaresNull(fields) {
+                    spec.nullableSchemas.insert(name)
+                }
                 let example = value["example"]
                 if !example.isNull {
                     spec.schemaExamples[name] = example
@@ -139,7 +144,7 @@ struct SpecLoader {
                 let propertyPath = "\(path).properties.\(name)"
                 var nullable = propertyFields["nullable"]?.boolValue ?? false
                 let (_, typeListNullable) = try parseType(propertyFields["type"], at: propertyPath)
-                nullable = nullable || typeListNullable
+                nullable = nullable || typeListNullable || Self.unionDeclaresNull(propertyFields)
                 let node = try parseNode(value, at: propertyPath)
                 properties[name] = SchemaNode.Property(node: node, nullable: nullable)
             }
@@ -180,10 +185,8 @@ struct SpecLoader {
             throw error("'oneOf'/'anyOf' must be a non-empty list", at: path)
         }
         var names: [String] = []
-        var nullable = false
         for (index, variant) in variants.enumerated() {
-            if variant["type"] == .string("null") {
-                nullable = true
+            if Self.isNullVariant(variant) {
                 continue
             }
             guard case .reference(let name) = try parseNode(variant, at: "\(path)[\(index)]") else {
@@ -194,11 +197,23 @@ struct SpecLoader {
             }
             names.append(name)
         }
-        _ = nullable
         guard !names.isEmpty else {
             throw error("'oneOf'/'anyOf' needs at least one non-null variant", at: path)
         }
         return names.count == 1 ? .reference(names[0]) : .oneOf(names)
+    }
+
+    /// Whether a schema mapping's `oneOf`/`anyOf` declares a null variant — OpenAPI 3.1's way
+    /// of spelling nullability in a union position.
+    private static func unionDeclaresNull(_ fields: [String: MockValue]) -> Bool {
+        guard let variants = (fields["oneOf"] ?? fields["anyOf"])?.listValue else { return false }
+        return variants.contains(where: isNullVariant)
+    }
+
+    /// Whether a union variant is `{type: "null"}` (quoted or bare YAML null both occur).
+    private static func isNullVariant(_ variant: MockValue) -> Bool {
+        guard let type = variant.objectValue?["type"] else { return false }
+        return type == .string("null") || type == .null
     }
 
     // MARK: - Paths
@@ -256,6 +271,13 @@ struct SpecLoader {
         var requestBody: SchemaNode?
         var requestBodyRequired = false
         if let body = fields["requestBody"], !body.isNull {
+            if body.objectValue?["$ref"] != nil {
+                throw error(
+                    "requestBody '$ref's (components.requestBodies) are not supported in v1; "
+                        + "inline the body definition",
+                    at: "\(path).requestBody"
+                )
+            }
             requestBody = try parseJSONContentSchema(body, at: "\(path).requestBody")
             requestBodyRequired = body["required"].boolValue ?? false
         }
@@ -264,6 +286,15 @@ struct SpecLoader {
         var responseSchema: SchemaNode?
         var responseExample: MockValue?
         if let responses = fields["responses"]?.objectValue {
+            // Every response entry is checked — a $ref in a 400 (or a second 2xx) must fail
+            // the same way one in the selected success response does.
+            for key in responses.keys.sorted() where responses[key]?.objectValue?["$ref"] != nil {
+                throw error(
+                    "Response '$ref's (components.responses) are not supported in v1; "
+                        + "inline the response definition",
+                    at: "\(path).responses.\(key)"
+                )
+            }
             let statuses = responses.keys.compactMap(Int.init).filter { (200..<300).contains($0) }.sorted()
             if let status = statuses.first {
                 successStatus = status
@@ -299,6 +330,13 @@ struct SpecLoader {
         var parameters: [SpecParameter] = []
         for (index, entry) in entries.enumerated() {
             let entryPath = "\(path)[\(index)]"
+            if entry.objectValue?["$ref"] != nil {
+                throw error(
+                    "Parameter '$ref's (components.parameters) are not supported in v1; "
+                        + "inline the parameter definition",
+                    at: entryPath
+                )
+            }
             guard let name = entry["name"].stringValue else {
                 throw error("Parameter is missing 'name'", at: entryPath)
             }
@@ -357,10 +395,10 @@ struct SpecLoader {
 
     // MARK: - Cross-validation
 
-    /// Verifies every `$ref`/union target names a real schema.
+    /// Verifies every `$ref`/union target names a real schema, and that pure alias chains
+    /// (a named schema that is itself just a `$ref`) terminate — a cycle would recurse forever
+    /// during coercion.
     private func validateReferences() throws {
-        var visited: Set<String> = []
-
         func check(_ node: SchemaNode, at path: String) throws {
             switch node {
             case .reference(let name):
@@ -385,8 +423,19 @@ struct SpecLoader {
         }
 
         for name in spec.schemas.keys.sorted() {
-            visited.insert(name)
             try check(spec.schemas[name] ?? .any, at: "components.schemas.\(name)")
+            var chain: Set<String> = [name]
+            var current = name
+            while case .reference(let next) = spec.schemas[current] ?? .any {
+                guard chain.insert(next).inserted else {
+                    throw error(
+                        "Circular '$ref' chain detected while resolving '\(name)': "
+                            + "'\(next)' is reached twice",
+                        at: "components.schemas.\(name)"
+                    )
+                }
+                current = next
+            }
         }
         for operation in spec.operations {
             let base = "paths.\(operation.pattern.template).\(operation.method.lowercased())"
