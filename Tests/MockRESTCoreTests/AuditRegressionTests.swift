@@ -349,6 +349,12 @@ import Testing
         let valid = await engine.execute(
             RESTRequest(method: "POST", path: "/submit", body: ["title": "hello"]))
         #expect(valid.status == 200)
+
+        // A non-object body for an object schema is a 422 type error, not a fall-through.
+        let notAnObject = await engine.execute(
+            RESTRequest(method: "POST", path: "/submit", body: "just a string"))
+        #expect(notAnObject.status == 422)
+        #expect(notAnObject.body?["errors"][0]["message"].stringValue?.contains("Expected an object") == true)
     }
 
     @Test func responseRefsAreRejectedOnEveryStatusNotJustSuccess() {

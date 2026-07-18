@@ -26,6 +26,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `$ref`s into `components.parameters/requestBodies/responses` fail with clear
   "not supported in v1" errors instead of misleading diagnostics.
 - Schema `example`s with integer ids seed correctly (coerced to string ids, matching seeds).
+- A non-object JSON body sent to an object-schema `requestBody` is a 422 type error instead of
+  being reinterpreted through reference coercion.
 
 ### Changed
 

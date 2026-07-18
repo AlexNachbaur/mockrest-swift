@@ -68,7 +68,10 @@ struct SchemaCoercion {
             while case .reference(let next) = spec.schemas[name] ?? .any {
                 name = next
             }
-            if case .object = spec.schemas[name] ?? .any, let fields = value.objectValue {
+            if case .object = spec.schemas[name] ?? .any {
+                guard let fields = value.objectValue else {
+                    throw error("Expected an object, found \(value)", at: path)
+                }
                 return .object(try coerceRecord(fields, schemaName: name, at: path, requireRequired: true))
             }
             return try coerce(value, to: node, at: path)
