@@ -59,10 +59,14 @@ struct SchemaCoercion {
     /// Coerces a value into a property position, handling explicit nulls.
     func coerce(_ value: MockValue, to property: SchemaNode.Property, at path: String) throws -> MockValue {
         if value.isNull {
-            guard property.nullable else {
-                throw error("Explicit null is not allowed here (the schema is not nullable)", at: path)
+            if property.nullable {
+                return .null
             }
-            return .null
+            // A `$ref` to a schema that is itself nullable also accepts null here.
+            if case .reference(let name) = property.node, spec.nullableSchemas.contains(name) {
+                return .null
+            }
+            throw error("Explicit null is not allowed here (the schema is not nullable)", at: path)
         }
         return try coerce(value, to: property.node, at: path)
     }
