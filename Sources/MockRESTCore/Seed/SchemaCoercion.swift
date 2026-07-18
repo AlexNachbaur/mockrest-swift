@@ -61,8 +61,14 @@ struct SchemaCoercion {
     /// validation does.
     func coerceBody(_ value: MockValue, to node: SchemaNode, at path: String) throws -> MockValue {
         switch node {
-        case .reference(let name):
-            if case .object = spec.schemas[name], let fields = value.objectValue {
+        case .reference(var name):
+            // Follow alias chains (A -> B -> Object) to the terminal schema; cycles were
+            // rejected at load, so this terminates. Required enforcement must not depend on
+            // how many alias hops the spec author used.
+            while case .reference(let next) = spec.schemas[name] ?? .any {
+                name = next
+            }
+            if case .object = spec.schemas[name] ?? .any, let fields = value.objectValue {
                 return .object(try coerceRecord(fields, schemaName: name, at: path, requireRequired: true))
             }
             return try coerce(value, to: node, at: path)

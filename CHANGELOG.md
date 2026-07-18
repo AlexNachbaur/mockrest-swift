@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-18
+
 ### Fixed
 
 - Resource inference no longer turns literal singleton/RPC paths (`/me`, `/login`,
@@ -53,3 +55,5 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `.bearer(validTokens:)` auth simulation (401), permissive CORS/preflight.
   - `MockRESTEngine: MockService` + `MockRESTServer` facade; cross-protocol integration tests
     prove REST + GraphQL (MockQL) on one `MockHost` with one shared `StateStore`.
+
+[0.1.0]: https://github.com/AlexNachbaur/mockrest-swift/releases/tag/0.1.0

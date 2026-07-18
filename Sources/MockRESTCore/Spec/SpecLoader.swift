@@ -286,17 +286,19 @@ struct SpecLoader {
         var responseSchema: SchemaNode?
         var responseExample: MockValue?
         if let responses = fields["responses"]?.objectValue {
+            // Every response entry is checked — a $ref in a 400 (or a second 2xx) must fail
+            // the same way one in the selected success response does.
+            for key in responses.keys.sorted() where responses[key]?.objectValue?["$ref"] != nil {
+                throw error(
+                    "Response '$ref's (components.responses) are not supported in v1; "
+                        + "inline the response definition",
+                    at: "\(path).responses.\(key)"
+                )
+            }
             let statuses = responses.keys.compactMap(Int.init).filter { (200..<300).contains($0) }.sorted()
             if let status = statuses.first {
                 successStatus = status
                 let response = responses[String(status)] ?? .null
-                if response.objectValue?["$ref"] != nil {
-                    throw error(
-                        "Response '$ref's (components.responses) are not supported in v1; "
-                            + "inline the response definition",
-                        at: "\(path).responses.\(status)"
-                    )
-                }
                 if !response.isNull, response["content"] != nil || response["description"] != nil {
                     responseSchema = try parseOptionalJSONContentSchema(response, at: "\(path).responses.\(status)")
                     responseExample = Self.example(in: response)

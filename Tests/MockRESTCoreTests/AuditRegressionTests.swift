@@ -184,6 +184,59 @@ import Testing
         }
     }
 
+    @Test func aliasChainedRequestBodiesStillEnforceRequired() async throws {
+        let yaml = """
+            openapi: 3.0.3
+            info: {title: T, version: 1.0.0}
+            paths:
+              /submit:
+                post:
+                  requestBody:
+                    required: true
+                    content:
+                      application/json:
+                        schema: {$ref: '#/components/schemas/FormAlias'}
+                  responses:
+                    '200': {description: ok}
+            components:
+              schemas:
+                FormAlias: {$ref: '#/components/schemas/Form'}
+                Form:
+                  type: object
+                  required: [title]
+                  properties:
+                    title: {type: string}
+            """
+        let engine = try await MockRESTEngine(spec: .yaml(yaml))
+        let missing = await engine.execute(RESTRequest(method: "POST", path: "/submit", body: [:]))
+        #expect(missing.status == 422)
+        #expect(missing.body?["errors"][0]["message"].stringValue?.contains("title") == true)
+        let valid = await engine.execute(
+            RESTRequest(method: "POST", path: "/submit", body: ["title": "hello"]))
+        #expect(valid.status == 200)
+    }
+
+    @Test func responseRefsAreRejectedOnEveryStatusNotJustSuccess() {
+        let yaml = """
+            openapi: 3.0.0
+            paths:
+              /things:
+                get:
+                  responses:
+                    '200': {description: ok}
+                    '400': {$ref: '#/components/responses/BadRequest'}
+            """
+        do {
+            _ = try SpecLoader.load(.yaml(yaml))
+            Issue.record("Expected a schema error")
+        } catch let error as MockError {
+            #expect(error.message.contains("not supported in v1"))
+            #expect(error.documentPath?.contains("responses.400") == true)
+        } catch {
+            Issue.record("Expected a MockError, got \(error)")
+        }
+    }
+
     // MARK: - Fault ordering (audit M3)
 
     @Test func preflightsAndMissesDoNotConsumeInjectedFaults() async throws {
