@@ -141,6 +141,83 @@ import Testing
         #expect(user?.objectValue?["nickname"] == .null)
     }
 
+    @Test func nullableAliasChainsAcceptExplicitNulls() async throws {
+        let yaml = """
+            openapi: 3.1.0
+            info: {title: T, version: 1.0.0}
+            paths: {}
+            components:
+              schemas:
+                Profile:
+                  type: object
+                  properties:
+                    id: {type: string}
+                    nickname: {$ref: '#/components/schemas/NickAlias'}
+                NickAlias: {$ref: '#/components/schemas/NickName'}
+                NickName:
+                  type: [string, 'null']
+            """
+        let engine = try await MockRESTEngine(
+            spec: .yaml(yaml),
+            seed: .yaml(
+                """
+                version: 1
+                data:
+                  Profile:
+                    - {id: p1, nickname: null}
+                """
+            )
+        )
+        let profile = await engine.store.record(type: "Profile", id: "p1")
+        #expect(profile?.objectValue?["nickname"] == .null)
+    }
+
+    @Test func synthesisRouteBodiesRejectDanglingReferences() async throws {
+        let yaml = """
+            openapi: 3.0.3
+            info: {title: T, version: 1.0.0}
+            paths:
+              /assign:
+                post:
+                  requestBody:
+                    required: true
+                    content:
+                      application/json:
+                        schema:
+                          type: object
+                          required: [assignee]
+                          properties:
+                            assignee: {$ref: '#/components/schemas/User'}
+                  responses:
+                    '200': {description: ok}
+            components:
+              schemas:
+                User:
+                  type: object
+                  properties:
+                    id: {type: string}
+                    name: {type: string}
+            """
+        let engine = try await MockRESTEngine(
+            spec: .yaml(yaml),
+            seed: .yaml(
+                """
+                version: 1
+                data:
+                  User:
+                    - {id: u1, name: Avery}
+                """
+            )
+        )
+        let valid = await engine.execute(
+            RESTRequest(method: "POST", path: "/assign", body: ["assignee": "u1"]))
+        #expect(valid.status == 200)
+        let dangling = await engine.execute(
+            RESTRequest(method: "POST", path: "/assign", body: ["assignee": "u9"]))
+        #expect(dangling.status == 422)
+        #expect(dangling.body?["errors"][0]["message"].stringValue?.contains("u9") == true)
+    }
+
     // MARK: - Alias cycles (audit M1)
 
     @Test func circularAliasChainsAreRejectedAtLoad() {

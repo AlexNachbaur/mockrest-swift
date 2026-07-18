@@ -308,12 +308,30 @@ public final class MockRESTEngine: Sendable {
                         return .errors(status: 422, [(message: "A request body is required", path: "body")])
                     }
                 } else {
+                    // References in the body are checked against current state, matching
+                    // AutoCRUD's request validation.
+                    let snapshot = state
+                    let dangling = DanglingReference()
                     let coercion = SchemaCoercion(
-                        spec: spec, category: .seed, sourceName: nil, recordReference: { _, _, _ in })
+                        spec: spec,
+                        category: .seed,
+                        sourceName: nil,
+                        recordReference: { typeName, id, referencePath in
+                            if snapshot[typeName, id: id].isNull, dangling.first == nil {
+                                dangling.first = (typeName, id, referencePath)
+                            }
+                        }
+                    )
                     do {
                         _ = try coercion.coerceBody(request.body, to: bodySchema, at: "body")
                     } catch let error as MockError {
                         return .errors(status: 422, [(message: error.message, path: error.documentPath)])
+                    }
+                    if let (typeName, id, referencePath) = dangling.first {
+                        return .errors(
+                            status: 422,
+                            [(message: "No '\(typeName)' record with id '\(id)'", path: referencePath)]
+                        )
                     }
                 }
             }
@@ -431,4 +449,9 @@ public final class MockRESTEngine: Sendable {
             data.insert(type: schemaName, fields: record)
         }
     }
+}
+
+/// Mutable capture for the synthesis-route reference check.
+private final class DanglingReference {
+    var first: (String, String, String)?
 }

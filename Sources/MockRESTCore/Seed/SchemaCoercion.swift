@@ -100,9 +100,17 @@ struct SchemaCoercion {
             if property.nullable {
                 return .null
             }
-            // A `$ref` to a schema that is itself nullable also accepts null here.
-            if case .reference(let name) = property.node, spec.nullableSchemas.contains(name) {
-                return .null
+            // A `$ref` chain to a nullable schema also accepts null — nullability at any hop
+            // (A -> B where either A or B is nullable) makes the position nullable. Cycles are
+            // rejected at load, so the walk terminates.
+            if case .reference(var name) = property.node {
+                while true {
+                    if spec.nullableSchemas.contains(name) {
+                        return .null
+                    }
+                    guard case .reference(let next) = spec.schemas[name] ?? .any else { break }
+                    name = next
+                }
             }
             throw error("Explicit null is not allowed here (the schema is not nullable)", at: path)
         }
