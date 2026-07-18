@@ -97,24 +97,37 @@ struct SchemaCoercion {
     /// Coerces a value into a property position, handling explicit nulls.
     func coerce(_ value: MockValue, to property: SchemaNode.Property, at path: String) throws -> MockValue {
         if value.isNull {
-            if property.nullable {
+            if property.nullable || acceptsNullThroughIndirection(property.node) {
                 return .null
-            }
-            // A `$ref` chain to a nullable schema also accepts null — nullability at any hop
-            // (A -> B where either A or B is nullable) makes the position nullable. Cycles are
-            // rejected at load, so the walk terminates.
-            if case .reference(var name) = property.node {
-                while true {
-                    if spec.nullableSchemas.contains(name) {
-                        return .null
-                    }
-                    guard case .reference(let next) = spec.schemas[name] ?? .any else { break }
-                    name = next
-                }
             }
             throw error("Explicit null is not allowed here (the schema is not nullable)", at: path)
         }
         return try coerce(value, to: property.node, at: path)
+    }
+
+    /// Whether a position accepts null through indirection: a `$ref` chain with a nullable hop,
+    /// or a union any of whose variants' chains is nullable. Cycles are rejected at load, so
+    /// the walks terminate.
+    private func acceptsNullThroughIndirection(_ node: SchemaNode) -> Bool {
+        switch node {
+        case .reference(let name):
+            return aliasChainIsNullable(startingAt: name)
+        case .oneOf(let names):
+            return names.contains { aliasChainIsNullable(startingAt: $0) }
+        default:
+            return false
+        }
+    }
+
+    private func aliasChainIsNullable(startingAt name: String) -> Bool {
+        var current = name
+        while true {
+            if spec.nullableSchemas.contains(current) {
+                return true
+            }
+            guard case .reference(let next) = spec.schemas[current] ?? .any else { return false }
+            current = next
+        }
     }
 
     /// Coerces a value into a schema position.

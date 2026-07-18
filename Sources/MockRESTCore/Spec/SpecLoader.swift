@@ -429,7 +429,8 @@ struct SpecLoader {
             while case .reference(let next) = spec.schemas[current] ?? .any {
                 guard chain.insert(next).inserted else {
                     throw error(
-                        "Circular '$ref' chain: '\(name)' resolves back to itself",
+                        "Circular '$ref' chain detected while resolving '\(name)': "
+                            + "'\(next)' is reached twice",
                         at: "components.schemas.\(name)"
                     )
                 }

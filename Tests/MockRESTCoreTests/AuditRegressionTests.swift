@@ -172,6 +172,64 @@ import Testing
         #expect(profile?.objectValue?["nickname"] == .null)
     }
 
+    @Test func oneOfVariantsWithNullableChainsAcceptExplicitNulls() async throws {
+        let yaml = """
+            openapi: 3.1.0
+            info: {title: T, version: 1.0.0}
+            paths: {}
+            components:
+              schemas:
+                Profile:
+                  type: object
+                  properties:
+                    id: {type: string}
+                    handle:
+                      oneOf:
+                        - {$ref: '#/components/schemas/Slug'}
+                        - {$ref: '#/components/schemas/NickName'}
+                Slug:
+                  type: object
+                  properties:
+                    id: {type: string}
+                NickName:
+                  type: [string, 'null']
+            """
+        let engine = try await MockRESTEngine(
+            spec: .yaml(yaml),
+            seed: .yaml(
+                """
+                version: 1
+                data:
+                  Profile:
+                    - {id: p1, handle: null}
+                """
+            )
+        )
+        let profile = await engine.store.record(type: "Profile", id: "p1")
+        #expect(profile?.objectValue?["handle"] == .null)
+    }
+
+    @Test func indirectAliasCyclesAreDiagnosedAccurately() {
+        let yaml = """
+            openapi: 3.0.0
+            paths: {}
+            components:
+              schemas:
+                A: {$ref: '#/components/schemas/B'}
+                B: {$ref: '#/components/schemas/C'}
+                C: {$ref: '#/components/schemas/B'}
+            """
+        do {
+            _ = try SpecLoader.load(.yaml(yaml))
+            Issue.record("Expected a schema error")
+        } catch let error as MockError {
+            #expect(error.message.contains("Circular"))
+            #expect(error.message.contains("reached twice"))
+        } catch {
+            Issue.record("Expected a MockError, got \(error)")
+        }
+    }
+
     @Test func synthesisRouteBodiesRejectDanglingReferences() async throws {
         let yaml = """
             openapi: 3.0.3
