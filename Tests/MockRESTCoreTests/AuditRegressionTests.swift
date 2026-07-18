@@ -111,7 +111,13 @@ import Testing
         #expect(wrongField.status == 422)
         #expect(wrongField.body?["errors"][0]["message"].stringValue?.contains("Did you mean 'password'?") == true)
 
-        // …including `required: true` on the body itself.
+        // …including the schema's `required` list…
+        let missingField = await engine.execute(
+            RESTRequest(method: "POST", path: "/login", body: ["username": "avery"]))
+        #expect(missingField.status == 422)
+        #expect(missingField.body?["errors"][0]["message"].stringValue?.contains("password") == true)
+
+        // …and `required: true` on the body itself.
         let missingBody = await engine.execute(RESTRequest(method: "POST", path: "/login"))
         #expect(missingBody.status == 422)
     }

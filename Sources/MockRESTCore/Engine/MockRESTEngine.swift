@@ -311,7 +311,7 @@ public final class MockRESTEngine: Sendable {
                     let coercion = SchemaCoercion(
                         spec: spec, category: .seed, sourceName: nil, recordReference: { _, _, _ in })
                     do {
-                        _ = try coercion.coerce(request.body, to: bodySchema, at: "body")
+                        _ = try coercion.coerceBody(request.body, to: bodySchema, at: "body")
                     } catch let error as MockError {
                         return .errors(status: 422, [(message: error.message, path: error.documentPath)])
                     }

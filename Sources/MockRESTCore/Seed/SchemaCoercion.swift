@@ -56,6 +56,38 @@ struct SchemaCoercion {
         return coerced
     }
 
+    /// Coerces a request body against an operation's declared schema, enforcing the object's
+    /// `required` list (directly or through a `$ref` to an object schema) the way CRUD
+    /// validation does.
+    func coerceBody(_ value: MockValue, to node: SchemaNode, at path: String) throws -> MockValue {
+        switch node {
+        case .reference(let name):
+            if case .object = spec.schemas[name], let fields = value.objectValue {
+                return .object(try coerceRecord(fields, schemaName: name, at: path, requireRequired: true))
+            }
+            return try coerce(value, to: node, at: path)
+        case .object(let properties, let required):
+            guard let fields = value.objectValue else {
+                throw error("Expected an object, found \(value)", at: path)
+            }
+            var coerced: [String: MockValue] = [:]
+            for name in fields.keys.sorted() {
+                guard let property = properties[name] else {
+                    let clause = Suggestion.clause(for: name, in: properties.keys)
+                    throw error("Unknown field '\(name)'.\(clause)", at: "\(path).\(name)")
+                }
+                guard let fieldValue = fields[name] else { continue }
+                coerced[name] = try coerce(fieldValue, to: property, at: "\(path).\(name)")
+            }
+            for name in required.sorted() where coerced[name] == nil {
+                throw error("Missing required field '\(name)'", at: path)
+            }
+            return .object(coerced)
+        default:
+            return try coerce(value, to: node, at: path)
+        }
+    }
+
     /// Coerces a value into a property position, handling explicit nulls.
     func coerce(_ value: MockValue, to property: SchemaNode.Property, at path: String) throws -> MockValue {
         if value.isNull {
