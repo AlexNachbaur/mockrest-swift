@@ -176,10 +176,12 @@ in a typed position means) live in each extension, since they depend on that ext
 
 Inherited from MockQL and applied platform-wide:
 
-- **Toolchain:** Swift 6.1, strict concurrency. `Package.swift` declares Apple minimums
+- **Toolchain:** Swift 6.3, strict concurrency. `Package.swift` declares Apple minimums
   (macOS 14 / iOS 17) only for concurrency availability; Linux/Windows/Android unaffected.
+  CI covers macOS, an iOS simulator, Linux, Windows, and an Android emulator.
 - **Dependencies:** Yams (YAML) in `MockCore`; SwiftNIO in `MockCoreTransport`. `MockCore` is
-  NIO-free and portable (usable where NIO isn't, e.g. Windows, via in-process execution).
+  NIO-free, which buys in-process execution rather than portability — SwiftNIO builds and runs
+  on every platform this package targets, Windows included.
   MockREST's OpenAPI ingestion is **hand-rolled Codable + validation** — no new dependency (see
   `rest-format.md`). No other dependencies without asking.
 - **License:** MIT, open source under `github.com/AlexNachbaur/*`.

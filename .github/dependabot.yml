@@ -1,11 +1,24 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
+# Dependabot version updates.
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 version: 2
 updates:
+  # SwiftPM dependencies declared in Package.swift / Package.resolved.
   - package-ecosystem: "swift"
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # The workflows pin third-party actions by major tag, which drifts silently: a major bump is
+  # never picked up on its own, and nothing in the repository records that a newer one exists.
+  # This is also the supply-chain surface that actually executes with repository context, so it
+  # is worth watching more than the library dependencies are.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      # One PR per week for all action bumps rather than one per action — they are almost
+      # always independent and individually trivial, and reviewing them together is faster.
+      actions:
+        patterns: ["*"]

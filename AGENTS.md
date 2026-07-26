@@ -13,9 +13,12 @@ swift format lint --strict --recursive Sources Tests Package.swift
 swift package generate-documentation --target MockRESTCore --target MockREST   # docs must build clean
 ```
 
-All four must pass before any commit. CI additionally runs the test suite on Linux
-(`swift:6.1` container) and on an Android emulator; do not introduce Apple-only framework
-imports in library targets.
+All four must pass before any commit. The documentation build is deliberately a **local** step:
+CI does not run it, so a DocC regression will only ever be caught here.
+
+CI builds and tests on macOS, an iOS simulator, Linux (`swift:6.3` container), Windows, and an
+Android emulator, and must pass on all five. Do not introduce Apple-only framework imports in
+library targets, and stick to Foundation APIs that swift-corelibs-foundation also provides.
 
 ## Architecture (settled decisions — do not relitigate)
 
