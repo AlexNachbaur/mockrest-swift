@@ -4,8 +4,9 @@ import PackageDescription
 let package = Package(
     name: "MockREST",
     // Minimum Apple OS versions only — required for Swift concurrency APIs on Apple targets.
-    // This does NOT limit platform support: Linux, Windows, and Android ignore this field.
-    // Both products build and test on all four, and CI proves it on every one.
+    // This does NOT limit platform support: Linux, Windows, and Android ignore this field
+    // entirely. All five supported platforms — macOS, iOS, Linux, Windows, Android — build and
+    // test in CI, both products on every one.
     platforms: [
         .macOS(.v14),
         .iOS(.v17),

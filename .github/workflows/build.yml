@@ -67,7 +67,11 @@ jobs:
           path: |
             ~/Library/Caches/org.swift.swiftpm
             .build
-          key: macos-spm-${{ hashFiles('Package.resolved') }}
+          # Package.resolved is deliberately not committed — pinning a resolution in a
+          # library repository forces it on every consumer — so hashing it would produce an
+          # empty digest and a cache key that never changes. Package.swift is what actually
+          # declares the dependency versions here.
+          key: macos-spm-${{ hashFiles('Package.swift') }}
           restore-keys: macos-spm-
       - name: Show toolchain
         run: swift --version
