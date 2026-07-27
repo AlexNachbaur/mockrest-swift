@@ -6,7 +6,7 @@
 > unseeded fields with deterministic generated data, and serves JSON on localhost. Includes
 > fault injection (failNext), latency, bearer-auth simulation, and CORS.
 
-Swift 6.1+, SPM package with two libraries: `MockREST` (server) and `MockRESTCore` (portable,
+Swift 6.3+, SPM package with two libraries: `MockREST` (server) and `MockRESTCore` (portable,
 NIO-free engine). Test-time tool only. Built on the MockCore platform: register the engine on
 a shared `MockHost` next to MockQL and both protocols answer one port with one shared state
 store.

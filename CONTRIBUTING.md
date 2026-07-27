@@ -15,8 +15,8 @@ instead.
 
 ## Getting started
 
-1. Install a **Swift 6.1** toolchain — Xcode 16.4+ on macOS, a [swift.org](https://swift.org/install/)
-   toolchain on Linux or Windows, or the `swift:6.1` Docker image (which is what CI uses).
+1. Install a **Swift 6.3** toolchain — Xcode 26.5+ on macOS, a [swift.org](https://swift.org/install/)
+   toolchain on Linux or Windows, or the `swift:6.3` Docker image (which is what CI uses).
 2. Fork and clone the repository.
 3. Build and test from the command line:
 
@@ -25,7 +25,7 @@ instead.
    swift test
    ```
 
-   On macOS you can also open `Package.swift` in Xcode 16.4 or later.
+   On macOS you can also open `Package.swift` in Xcode 26.5 or later.
 
 Dependencies resolve from GitHub (MockCore, and MockQL for the cross-protocol integration
 tests); nothing else is required beyond the toolchain.
@@ -58,10 +58,10 @@ Beyond formatting, the project follows these rules:
 - **Error messages are a product feature.** Spec, seed, and request diagnostics carry document
   paths (`paths./users/{id}.get.responses.200`, `data.User[0].email`) and "did you mean"
   suggestions. Never regress an error message.
-- **Stay cross-platform.** `MockRESTCore` supports macOS, iOS, Linux, and Android (with
-  Windows planned). Don't import Apple-only frameworks in library targets, and stick to
-  Foundation APIs available in swift-corelibs-foundation. CI builds and tests on macOS, Linux,
-  and an Android emulator, and must pass on all three.
+- **Stay cross-platform.** `MockRESTCore` supports macOS, iOS, Linux, Windows, and Android.
+  Don't import Apple-only frameworks in library targets, and stick to Foundation APIs available
+  in swift-corelibs-foundation. CI builds and tests on macOS, an iOS simulator, Linux, Windows,
+  and an Android emulator, and must pass on all five.
 
 ## Pull requests
 

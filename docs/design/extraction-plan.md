@@ -79,8 +79,9 @@ query).
 - `mockql-swift`: minor bump; CHANGELOG "Unreleased" notes the foundation extraction and that the
   public API is unchanged.
 - `mockrest-swift`: `0.1.0` once Phase 4 lands.
-- All three: MIT, `github.com/AlexNachbaur/*`, Swift 6.1, macOS/iOS/Linux CI (Android/Windows as
-  MockQL already tracks them).
+- All three: MIT, `github.com/AlexNachbaur/*`, Swift 6.3, with macOS/iOS/Linux/Windows/Android
+  CI. (This originally read "Swift 6.1, macOS/iOS/Linux CI, Android/Windows as MockQL already
+  tracks them"; all five platforms are now built and tested in every repository.)
 
 ## 6. Risks & mitigations
 

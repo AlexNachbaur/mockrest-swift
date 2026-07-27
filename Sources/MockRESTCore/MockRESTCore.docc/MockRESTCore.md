@@ -12,7 +12,7 @@ shared, transactional state store. The `MockREST` module puts a real localhost s
 of it and re-exports this module, so most users just `import MockREST`.
 
 Import `MockRESTCore` directly for in-process execution with no server — for unit tests of
-API-consuming code, or on platforms where SwiftNIO is unavailable (such as Windows):
+API-consuming code, or on any host that would rather not bind a port:
 
 ```swift
 import MockRESTCore

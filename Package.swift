@@ -1,11 +1,12 @@
-// swift-tools-version: 6.1
+// swift-tools-version: 6.3
 import PackageDescription
 
 let package = Package(
     name: "MockREST",
     // Minimum Apple OS versions only — required for Swift concurrency APIs on Apple targets.
     // This does NOT limit platform support: Linux, Windows, and Android ignore this field
-    // and are fully supported (by MockRESTCore; the MockREST transport layer requires SwiftNIO).
+    // entirely. All five supported platforms — macOS, iOS, Linux, Windows, Android — build and
+    // test in CI, both products on every one.
     platforms: [
         .macOS(.v14),
         .iOS(.v17),
