@@ -7,6 +7,86 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`MockRESTServer.start { … }` and `MockRESTEngine { … }` now compile from `@MainActor`
+  code.** They are `nonisolated(nonsending)`, so the configuration block is evaluated on the
+  caller's actor instead of being sent across an isolation boundary. Previously an XCUITest
+  `setUp` — the call site this package exists for — was rejected by the compiler with "sending
+  value of non-Sendable type".
+- **`if`/`else`, `switch`, and `for` now work inside the configuration block.** The builder
+  accepted only a flat list of declarations, so the first conditional endpoint failed to
+  compile.
+- A DSL endpoint or explicit `Resource` now overrides the spec route it shadows **whatever it
+  names the path parameter**. `Get("/users/{userId}")` over a spec's `/users/{id}` used to
+  leave both routes registered, and an alphabetical tiebreak silently picked the spec's.
+- Free-form objects are usable: `type: object` with no `properties` accepts any keys,
+  `additionalProperties: true` or a schema accepts (and, for a schema, validates) keys beyond
+  `properties`, and `required` may name such a key. Every extra key used to be rejected as an
+  unknown field. Objects that declare `properties` and do not opt in stay closed, so seed and
+  request typos still get their "did you mean" diagnostic.
+- Omitted fields typed by a `$ref` to a scalar, enum, or array schema are generated like the
+  schema they name instead of being served as `null`.
+- List endpoints no longer treat every unknown query parameter as a filter. `?page=1`,
+  `?include=owner`, or a cache-buster used to match no record and return `[]`; a parameter is
+  now a filter only when it names a field of the collection.
+- Path templates may mix literal text and parameters in one segment (`/files/{name}.json`,
+  `/users/{id}:activate`, `/reports/{year}-{month}`); these used to abort spec loading. Two
+  parameters with nothing between them (`/a/{x}{y}`) are rejected with a clear error instead of
+  being parsed as one parameter named `x}{y`.
+- HTTP semantics:
+  - the `Bearer` authorization scheme is matched case-insensitively, as RFC 9110 requires;
+  - `Accept` is parsed as media ranges (with `q=0` honored) rather than searched for the
+    substring "json", and `+json` types are accepted;
+  - `HEAD` is answered by the matching `GET` route — same status and headers, no body —
+    instead of `405`, and `Allow` advertises it;
+  - cross-origin responses carry `Vary: Origin` and `Access-Control-Expose-Headers`, so a
+    browser client can read `Location` after a create and caches do not replay one origin's
+    answer to another;
+  - a request body that is not JSON and does not claim to be reaches hand-written endpoints
+    as a `.string` instead of being refused with `400` before routing (malformed JSON is
+    still a `400`);
+  - a response body that cannot be encoded as JSON (`NaN`, say) is a `500` that says so, not
+    an empty `200`;
+  - a handler that sets its own `Content-Type` no longer gets a second
+    `application/json` header appended.
+- References in a response body are resolved inside the handler's transaction, so a response
+  is one consistent view of the state the handler saw. A concurrent write could previously
+  land between the handler and the embedding of the records it referenced.
+- Generators work in DSL-only mode, keyed `"resource.field"` as the format reference always
+  said: keys are validated against the declared resources and bound fields are filled on
+  records that omit them. They were silently ignored.
+- Request validation now reaches all the way down: `required` is enforced on nested objects
+  and array elements of POST/PUT bodies, an object in a `oneOf`/`anyOf` position is validated
+  against the variant it matches (it was always a `422`), and requests missing a
+  `required: true` query or header parameter get a `400` naming it.
+- A request whose task is cancelled while waiting out `.delay(_)` no longer runs its handler;
+  it returns `503` without touching state.
+- The `Location` header of a create percent-encodes ids that are not plain path segments.
+- Stored fields the schema does not declare (written by a handler, or by a sibling protocol
+  mock sharing the store) are served instead of silently dropped from spec-mode responses.
+- `MockRESTVersion.current` reported `0.1.0` in the 0.1.1 release; it now tracks the tag, and
+  a test checks it against this file.
+
+### Added
+
+- `$ref`s into `components.parameters`, `components.requestBodies`, and
+  `components.responses` are resolved (unknown names get a "did you mean", cycles are
+  diagnosed, and errors inside a component point at `components.<section>.<name>`). Specs
+  exported by most tools use these, and each one previously aborted the load.
+- `in: cookie` parameters are accepted and ignored rather than rejected, so specs that
+  declare them load.
+- `MockRESTBuilder` gained `buildExpression`, `buildArray`, and `buildLimitedAvailability`.
+
+### Changed
+
+- README gains **Known limitations** and guidance on resolving `.file(...)` paths from a test
+  bundle; the scope notes list every construct that still fails spec loading. The format
+  reference (`docs/design/rest-format.md`) is updated from design draft to a description of
+  what shipped.
+
+## [0.1.1] - 2026-07-27
+
 ### Changed
 
 - **Minimum toolchain is now Swift 6.3** (`swift-tools-version: 6.3`, was 6.1). This aligns
@@ -77,4 +157,5 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `MockRESTEngine: MockService` + `MockRESTServer` facade; cross-protocol integration tests
     prove REST + GraphQL (MockQL) on one `MockHost` with one shared `StateStore`.
 
+[0.1.1]: https://github.com/AlexNachbaur/mockrest-swift/releases/tag/0.1.1
 [0.1.0]: https://github.com/AlexNachbaur/mockrest-swift/releases/tag/0.1.0

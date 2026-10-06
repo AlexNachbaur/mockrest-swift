@@ -25,10 +25,15 @@ instead.
    swift test
    ```
 
+   `make check` runs everything a pull request must pass — lint, build, tests, and the
+   documentation build — in one step.
+
    On macOS you can also open `Package.swift` in Xcode 26.5 or later.
 
 Dependencies resolve from GitHub (MockCore, and MockQL for the cross-protocol integration
-tests); nothing else is required beyond the toolchain.
+tests); nothing else is required beyond the toolchain. To work against a local MockCore
+checkout, run `swift package edit mockcore-swift --path ../mockcore` (and
+`swift package unedit mockcore-swift` when done).
 
 ## Reporting bugs and requesting features
 
@@ -40,11 +45,15 @@ tests); nothing else is required beyond the toolchain.
 ## Code style
 
 Formatting is enforced by `swift-format` using the checked-in [.swift-format](.swift-format)
-configuration. CI will fail on lint violations, so run this before pushing:
+configuration. CI will fail on lint violations, so run this before pushing (`make lint`; `make
+format` applies the fixes):
 
 ```sh
 swift format lint --strict --recursive Sources Tests Package.swift
 ```
+
+The DocC catalogs must build with **zero warnings**, and CI does not build them — `make docs`
+(part of `make check`) is the only place a documentation regression is caught.
 
 Beyond formatting, the project follows these rules:
 
@@ -70,7 +79,7 @@ Beyond formatting, the project follows these rules:
   full-stack HTTP (and cross-protocol) coverage in `Tests/MockRESTIntegrationTests`.
 - Update documentation (README, `docs/design/`, doc comments) when the public API changes.
 - Note user-visible changes under the **Unreleased** heading in [CHANGELOG.md](CHANGELOG.md).
-- Make sure `swift build`, `swift test`, and the lint command above all pass locally.
+- Make sure `make check` passes locally (lint, build, tests, and the DocC build).
 
 While the project is pre-1.0, the public API may change without deprecation cycles, but each
 breaking change should be called out in the changelog.

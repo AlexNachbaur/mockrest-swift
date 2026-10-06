@@ -1,3 +1,4 @@
+import Foundation
 import MockCore
 
 /// Builds the conventional CRUD handlers for a resource collection, all overridable by a DSL
@@ -7,8 +8,8 @@ struct AutoCRUD {
     let spec: RESTSpec?
     let synthesizer: ResponseSynthesizer
 
-    /// Query parameter names with engine-defined meaning on list endpoints; everything else is
-    /// an equality filter.
+    /// Query parameter names with engine-defined meaning on list endpoints. Any other name is
+    /// an equality filter when it names a field of the collection, and is ignored otherwise.
     private static let reservedQueryParams: Set<String> = ["limit", "offset", "sort"]
 
     /// The routes this resource contributes: list/create on the base path, get/replace/merge/
@@ -35,8 +36,15 @@ struct AutoCRUD {
         return { request, state in
             var records = state.records(ofType: resource.schema)
 
-            // ?field=value filters by equality on the stored value.
+            // ?field=value filters by equality on the stored value. A parameter that names no
+            // field of this collection (`?page=2`, `?include=owner`, a cache-buster) is not a
+            // filter — treating it as one would empty every list a real client asks for.
+            let declared = spec?.objectProperties(of: resource.schema) ?? [:]
+            let collection = records
             for (name, value) in request.query where !Self.reservedQueryParams.contains(name) {
+                guard declared[name] != nil || collection.contains(where: { $0.objectValue?[name] != nil }) else {
+                    continue
+                }
                 records = records.filter { Self.fieldMatches($0[name], query: value) }
             }
             // ?sort=field ascending, ?sort=-field descending.
@@ -160,7 +168,13 @@ struct AutoCRUD {
             }
             let record = state[resource.schema, id: id]
             let body = synthesizer.serializeRecord(record, schemaName: resource.schema, data: state.storeData)
-            return .created(Self.present(body, resource: resource, spec: spec), location: "\(resource.basePath)/\(id)")
+            // The id is one path segment of the Location, so everything that would end or
+            // split a segment is escaped.
+            let segment = id.addingPercentEncoding(withAllowedCharacters: Self.pathSegmentAllowed) ?? id
+            return .created(
+                Self.present(body, resource: resource, spec: spec),
+                location: "\(resource.basePath)/\(segment)"
+            )
         }
     }
 
@@ -235,6 +249,9 @@ struct AutoCRUD {
     }
 
     // MARK: - Shared pieces
+
+    /// Characters that may appear unescaped inside one path segment.
+    private static let pathSegmentAllowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
 
     /// The outcome of request-body validation: coerced fields, or the 422 to send back.
     private enum ValidationOutcome {

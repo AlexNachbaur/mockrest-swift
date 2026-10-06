@@ -1,7 +1,11 @@
 # MockCore Platform Architecture
 
-> Status: **Design draft for review.** Nothing here is built yet. Sections marked
-> **[OPEN]** need a decision before implementation.
+> Status: **Implemented — design record.** The platform described here was built: it ships as
+> [mockcore-swift](https://github.com/AlexNachbaur/mockcore-swift), with MockQL and MockREST as
+> its two protocol extensions. This document is kept as the record of the design reasoning and
+> has not been revised line by line against the shipped code; **[OPEN]** markers are questions
+> as they stood at design time, since decided. Where it and the code disagree, the
+> `mockcore-swift` sources and API documentation are authoritative.
 
 ## 1. Goal
 

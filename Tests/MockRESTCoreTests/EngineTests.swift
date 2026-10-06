@@ -287,3 +287,306 @@ import Testing
         }
     }
 }
+
+/// Which handler answers when the spec, a resource, and a hand-written endpoint all describe
+/// the same route.
+@Suite struct RouteOverrideTests {
+    static let gadgetSpec = """
+        openapi: 3.0.3
+        info: {title: Gadgets, version: 1.0.0}
+        paths:
+          /gadgets:
+            get:
+              responses:
+                '200':
+                  description: list
+                  content:
+                    application/json:
+                      schema: {type: array, items: {$ref: '#/components/schemas/Gadget'}}
+          /gadgets/{gadgetId}:
+            parameters:
+              - {name: gadgetId, in: path, required: true, schema: {type: string}}
+            get:
+              responses:
+                '200':
+                  description: one
+                  content:
+                    application/json:
+                      schema: {$ref: '#/components/schemas/Gadget'}
+        components:
+          schemas:
+            Gadget:
+              type: object
+              properties:
+                id: {type: string}
+                name: {type: string}
+        """
+
+    static let gadgetSeed = """
+        version: 1
+        data:
+          Gadget:
+            - {id: g1, name: Sprocket}
+            - {id: g2, name: Flange}
+        """
+
+    @Test func anEndpointOverridesASpecRouteWhateverItCallsTheParameter() async throws {
+        // The spec says /products/{id}; the endpoint says {productId}. Same route.
+        let engine = try await Fixtures.shopEngine {
+            Get("/products/{productId}") { req, _ in
+                .ok(["overridden": .string(req.pathParam("productId"))])
+            }
+        }
+        let response = await engine.execute(RESTRequest(method: "GET", path: "/products/p1"))
+        #expect(response.body?["overridden"] == .string("p1"))
+    }
+
+    @Test func anExplicitResourceOverridesSpecRoutesWithADifferentParameterName() async throws {
+        // The spec's item path is /gadgets/{gadgetId}; the resource's CRUD uses {id}.
+        let engine = try await MockRESTEngine(spec: .yaml(Self.gadgetSpec), seed: .yaml(Self.gadgetSeed)) {
+            Resource("gadgets", schema: "Gadget")
+        }
+        let second = await engine.execute(RESTRequest(method: "GET", path: "/gadgets/g2"))
+        #expect(second.body?["name"] == .string("Flange"))
+        let missing = await engine.execute(RESTRequest(method: "GET", path: "/gadgets/nope"))
+        #expect(missing.status == 404)
+        // Explicit resources get the full conventional set, not just what the spec lists.
+        let deleted = await engine.execute(RESTRequest(method: "DELETE", path: "/gadgets/g1"))
+        #expect(deleted.status == 204)
+    }
+
+    @Test func eachMethodIsListedOnceWhenRoutesOverlap() async throws {
+        let engine = try await Fixtures.shopEngine {
+            Get("/products/{productId}") { _, _ in .ok(["overridden": true]) }
+        }
+        let response = await engine.execute(RESTRequest(method: "DELETE", path: "/products/p1"))
+        #expect(response.status == 405)
+        #expect(response.headers.first { $0.name == "Allow" }?.value == "GET, HEAD")
+    }
+}
+
+/// List endpoints: which query parameters filter, and which are none of the mock's business.
+@Suite struct ListQueryTests {
+    @Test func queryParametersThatNameNoFieldAreIgnored() async throws {
+        let engine = try await Fixtures.shopEngine()
+        let paged = await engine.execute(
+            RESTRequest(method: "GET", path: "/users", query: [("page", "1"), ("per_page", "20"), ("_", "17283")]))
+        #expect(paged.status == 200)
+        #expect(paged.body?.count == 2)
+    }
+
+    @Test func declaredFieldsStillFilter() async throws {
+        let engine = try await Fixtures.shopEngine()
+        let active = await engine.execute(
+            RESTRequest(method: "GET", path: "/users", query: [("status", "active"), ("page", "1")]))
+        #expect(active.body?.count == 1)
+        #expect(active.body?[0]["id"] == .string("u1"))
+        // A declared field no record matches filters everything out — that is a real answer.
+        let phone = await engine.execute(RESTRequest(method: "GET", path: "/users", query: [("phone", "555-0100")]))
+        #expect(phone.body?.count == 0)
+    }
+
+    @Test func withoutASpecStoredFieldsFilterAndOtherNamesAreIgnored() async throws {
+        let engine = try await MockRESTEngine {
+            Resource("tasks")
+        }
+        for (title, done) in [("Write", true), ("Review", false)] {
+            let created = await engine.execute(
+                RESTRequest(method: "POST", path: "/tasks", body: ["title": .string(title), "done": .bool(done)]))
+            #expect(created.status == 201)
+        }
+        let paged = await engine.execute(RESTRequest(method: "GET", path: "/tasks", query: [("page", "2")]))
+        #expect(paged.body?.count == 2)
+        let done = await engine.execute(RESTRequest(method: "GET", path: "/tasks", query: [("done", "true")]))
+        #expect(done.body?.count == 1)
+        #expect(done.body?[0]["title"] == .string("Write"))
+    }
+}
+
+/// Generators, pass-through fields, and the other ways a stored record becomes a response.
+@Suite struct ResponseShapingTests {
+    @Test func dslOnlyGeneratorsFillFieldsTheRecordOmits() async throws {
+        let engine = try await MockRESTEngine(
+            generators: ["tasks.status": .constant("open"), "tasks.assignee": .email],
+            serverSeed: 11
+        ) {
+            Resource("tasks")
+        }
+        let created = await engine.execute(
+            RESTRequest(method: "POST", path: "/tasks", body: ["id": "t1", "title": "Write"]))
+        #expect(created.body?["status"] == .string("open"))
+        let assignee = try #require(created.body?["assignee"].stringValue)
+        #expect(assignee.contains("@"))
+
+        // Stable across reads, present in lists, and never overriding a stored value.
+        let fetched = await engine.execute(RESTRequest(method: "GET", path: "/tasks/t1"))
+        #expect(fetched.body?["assignee"] == .string(assignee))
+        _ = await engine.execute(
+            RESTRequest(method: "POST", path: "/tasks", body: ["id": "t2", "status": "closed"]))
+        let listed = await engine.execute(RESTRequest(method: "GET", path: "/tasks"))
+        #expect(listed.body?[0]["status"] == .string("open"))
+        #expect(listed.body?[1]["status"] == .string("closed"))
+    }
+
+    @Test func dslOnlyGeneratorsMayNameTheResourceOrItsType() async throws {
+        let engine = try await MockRESTEngine(
+            generators: ["tasks.status": .constant("open"), "Task.priority": .constant("low")]
+        ) {
+            Resource("tasks", schema: "Task")
+        }
+        let created = await engine.execute(RESTRequest(method: "POST", path: "/tasks", body: ["id": "t1"]))
+        #expect(created.body?["status"] == .string("open"))
+        #expect(created.body?["priority"] == .string("low"))
+    }
+
+    @Test func dslOnlyGeneratorKeysAreValidatedAgainstDeclaredResources() async {
+        do {
+            _ = try await MockRESTEngine(generators: ["taks.status": .constant("open")]) {
+                Resource("tasks")
+            }
+            Issue.record("Expected a configuration error")
+        } catch let error as MockError {
+            #expect(error.category == .configuration)
+            #expect(error.message.contains("unknown resource 'taks'"))
+            #expect(error.message.contains("Did you mean 'tasks'?"))
+        } catch {
+            Issue.record("Expected a MockError, got \(error)")
+        }
+        do {
+            _ = try await MockRESTEngine(generators: ["status": .constant("open")]) {
+                Resource("tasks")
+            }
+            Issue.record("Expected a configuration error")
+        } catch let error as MockError {
+            #expect(error.message.contains("must have the form 'resource.field'"))
+        } catch {
+            Issue.record("Expected a MockError, got \(error)")
+        }
+    }
+
+    @Test func storedFieldsTheSchemaDoesNotDeclareAreServed() async throws {
+        // A handler (or a sibling protocol mock sharing the store) may write fields the REST
+        // schema never mentions; they are part of the record and must not silently vanish.
+        let engine = try await Fixtures.shopEngine {
+            Post("/users/{userId}/nickname") { req, state in
+                state.update("User", id: req.pathParam("userId")) { $0["nickname"] = req.body["nickname"] }
+                return .noContent
+            }
+        }
+        _ = await engine.execute(
+            RESTRequest(method: "POST", path: "/users/u1/nickname", body: ["nickname": "Ave"]))
+        let fetched = await engine.execute(RESTRequest(method: "GET", path: "/users/u1"))
+        #expect(fetched.body?["nickname"] == .string("Ave"))
+        #expect(fetched.body?["name"] == .string("Avery Quinn"))
+    }
+
+    @Test func theInternalIdStaysHiddenWhenTheSchemaNamesItsIdFieldDifferently() async throws {
+        let spec = """
+            openapi: 3.0.3
+            info: {title: Tasks, version: 1.0.0}
+            paths: {}
+            components:
+              schemas:
+                Task:
+                  type: object
+                  properties:
+                    taskId: {type: string}
+                    title: {type: string}
+            """
+        let seed = """
+            version: 1
+            resources:
+              tasks: {schema: Task, path: /tasks, idField: taskId}
+            data:
+              Task:
+                - {taskId: t1, title: Write}
+            """
+        let engine = try await MockRESTEngine(spec: .yaml(spec), seed: .yaml(seed))
+        let fetched = await engine.execute(RESTRequest(method: "GET", path: "/tasks/t1"))
+        #expect(fetched.status == 200)
+        #expect(fetched.body?["taskId"] == .string("t1"))
+        #expect(fetched.body?["id"] == .null)
+    }
+
+    @Test func locationEscapesIdsThatAreNotPlainPathSegments() async throws {
+        let engine = try await MockRESTEngine {
+            Resource("tasks")
+        }
+        let created = await engine.execute(
+            RESTRequest(method: "POST", path: "/tasks", body: ["id": "a b/c?d", "title": "Odd id"]))
+        #expect(created.status == 201)
+        let location = try #require(created.headers.first { $0.name == "Location" }?.value)
+        #expect(location == "/tasks/a%20b%2Fc%3Fd")
+        // …and following it finds the record.
+        let fetched = await engine.execute(RESTRequest(method: "GET", path: location))
+        #expect(fetched.body?["title"] == .string("Odd id"))
+    }
+}
+
+/// Timing and concurrency: the configured delay, cancellation, and consistent responses under
+/// concurrent writes.
+@Suite struct EngineConcurrencyTests {
+    @Test func theConfiguredDelayIsWaitedOut() async throws {
+        let engine = try await MockRESTEngine(options: .delay(.milliseconds(60))) {
+            Get("/ping") { _, _ in .ok(["pong": true]) }
+        }
+        let clock = ContinuousClock()
+        let started = clock.now
+        let response = await engine.execute(RESTRequest(method: "GET", path: "/ping"))
+        #expect(response.status == 200)
+        #expect(clock.now - started >= .milliseconds(60))
+    }
+
+    @Test func aRequestCancelledDuringTheDelayNeverRunsItsHandler() async throws {
+        let engine = try await MockRESTEngine(options: .delay(.seconds(60))) {
+            Resource("tasks")
+        }
+        let request = Task {
+            await engine.execute(RESTRequest(method: "POST", path: "/tasks", body: ["title": "Never stored"]))
+        }
+        request.cancel()
+        let response = await request.value
+        #expect(response.status == 503)
+        #expect(response.body?["errors"][0]["message"].stringValue?.contains("cancelled") == true)
+        #expect(await engine.store.records(ofType: "tasks").isEmpty)
+    }
+
+    @Test func embeddedReferencesComeFromTheStateTheHandlerSaw() async throws {
+        // /peek reports the counter's value and embeds the counter record. Both must describe
+        // the same moment, however many /bump requests land around it.
+        let seed = """
+            version: 1
+            data:
+              Counter:
+                - {id: c, value: 0}
+            """
+        let engine = try await MockRESTEngine(seed: .yaml(seed)) {
+            Get("/peek") { _, state in
+                .ok(["seen": state["Counter", id: "c"]["value"], "counter": .reference("Counter", id: "c")])
+            }
+            Post("/bump") { _, state in
+                state.update("Counter", id: "c") { $0["value"] = .int(($0["value"].intValue ?? 0) + 1) }
+                return .noContent
+            }
+        }
+        let torn = await withTaskGroup(of: Bool.self) { group in
+            for _ in 0..<400 {
+                group.addTask {
+                    _ = await engine.execute(RESTRequest(method: "POST", path: "/bump"))
+                    return false
+                }
+                group.addTask {
+                    let peek = await engine.execute(RESTRequest(method: "GET", path: "/peek"))
+                    return peek.body?["seen"] != peek.body?["counter"]["value"]
+                }
+            }
+            var count = 0
+            for await isTorn in group where isTorn {
+                count += 1
+            }
+            return count
+        }
+        #expect(torn == 0)
+        #expect(await engine.store.record(type: "Counter", id: "c")?["value"] == .int(400))
+    }
+}
