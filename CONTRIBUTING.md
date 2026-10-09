@@ -84,6 +84,19 @@ Beyond formatting, the project follows these rules:
 While the project is pre-1.0, the public API may change without deprecation cycles, but each
 breaking change should be called out in the changelog.
 
+## Code review
+
+Every pull request gets an automated review from Claude (`.github/workflows/claude-review.yml`),
+which posts inline comments. `main` requires every review thread to be resolved before a merge:
+fix what the comment describes, or reply with why it does not apply, then resolve it. A thread
+resolved without either is reopened.
+
+The review needs a secret that only this repository holds, so a pull request **from a fork** is
+not reviewed automatically — a maintainer adds the `claude-review` label once they have looked
+at the submission, which runs the review (and re-runs it on later pushes). Your fork's own copy
+of the workflow skips itself, and the review is not a required check, so nothing about this
+blocks you from building, testing, or opening the pull request.
+
 ## Design discussions
 
 Larger changes (spec-ingestion scope, the state model, new cross-cutting features) should start
