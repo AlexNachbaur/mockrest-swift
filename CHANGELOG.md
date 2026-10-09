@@ -9,6 +9,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`readOnly` properties may be omitted from a request even when `required`.** The nested
+  `required` enforcement below would otherwise have rejected the canonical generated-spec
+  shape — `id`/`createdAt` listed as both `required` and `readOnly` — on every create, at every
+  depth (found in review). The server fills those; OpenAPI says a request may leave them out.
+- **Filtering no longer depends on what the store happens to contain.** With a spec, a query
+  parameter filters only when it names a schema property. Without one, every parameter filters
+  except the paging/sorting vocabulary (`limit`, `offset`, `sort`, `page`, `per_page`,
+  `perPage`, `pageSize`, `page_size`) — previously `?status=done` returned everything until
+  some record gained a `status`, then nothing, which made the same test pass or fail depending
+  on what an earlier step had POSTed.
+- A typed `additionalProperties` schema no longer admits `null` for every extra key.
+- **A declared non-JSON `Content-Type` is believed.** `text/plain` with a body that opens with
+  `[` or `{` reached a handler as a 400 "not valid JSON"; now only an undeclared type, or the
+  form-urlencoded default URLSession and curl apply, is judged by the first byte. A body with
+  no `Content-Type` that does not open like JSON is passed through as text rather than refused.
 - **`MockRESTServer.start { … }` and `MockRESTEngine { … }` now compile from `@MainActor`
   code.** They are `nonisolated(nonsending)`, so the configuration block is evaluated on the
   caller's actor instead of being sent across an isolation boundary. Previously an XCUITest

@@ -29,14 +29,16 @@ extension MockRESTEngine: MockService {
             do {
                 body = try MockValue.fromJSONData(request.body)
             } catch {
-                // A body that neither claims nor attempts to be JSON is handed to the handler
-                // as text — a hand-written endpoint may well accept a form post or a
-                // plain-text upload. The declared type alone cannot decide this: URLSession and
-                // curl label a JSON body `application/x-www-form-urlencoded` unless told
-                // otherwise, so a body that opens like JSON is still held to being JSON.
-                guard let contentType = request.header("Content-Type"), !Self.isJSON(contentType),
-                    !Self.opensLikeJSON(request.body)
-                else {
+                // A body that is not JSON is handed to the handler as text — a hand-written
+                // endpoint may well accept a form post or a plain-text upload. A client that
+                // *says* what it is sending (`text/plain`, `text/csv`, …) is believed, braces
+                // and all. Only a body with no declared type, or the form-urlencoded label that
+                // URLSession and curl apply to a JSON body unless told otherwise, is judged by
+                // its first byte: if it opens like JSON it is held to being JSON.
+                let contentType = request.header("Content-Type")
+                let claimsJSON = contentType.map(Self.isJSON) ?? false
+                let typeIsInformative = contentType.map { !Self.isFormURLEncoded($0) } ?? false
+                guard !claimsJSON, typeIsInformative || !Self.opensLikeJSON(request.body) else {
                     return Self.failure(status: 400, message: "Request body is not valid JSON")
                 }
                 body = .string(String(decoding: request.body, as: UTF8.self))
@@ -82,6 +84,15 @@ extension MockRESTEngine: MockService {
             contentType.split(separator: ";").first.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
             ?? ""
         return mediaType == "application/json" || mediaType.hasSuffix("+json")
+    }
+
+    /// The label URLSession and curl put on a body whose type the caller never set — so it says
+    /// nothing about what the body actually is.
+    private static func isFormURLEncoded(_ contentType: String) -> Bool {
+        let mediaType =
+            contentType.split(separator: ";").first.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            ?? ""
+        return mediaType == "application/x-www-form-urlencoded"
     }
 
     /// Whether the first non-whitespace byte starts a JSON object or array.

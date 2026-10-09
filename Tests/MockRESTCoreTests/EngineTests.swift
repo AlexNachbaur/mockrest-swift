@@ -386,20 +386,33 @@ import Testing
         #expect(phone.body?.count == 0)
     }
 
-    @Test func withoutASpecStoredFieldsFilterAndOtherNamesAreIgnored() async throws {
+    @Test func withoutASpecEveryParameterFiltersExceptThePagingVocabulary() async throws {
+        // No schema to say what is a field, so the rule has to be one that does not change
+        // with the store's contents: `?status=done` means the same before and after a record
+        // carrying `status` is created.
         let engine = try await MockRESTEngine {
             Resource("tasks")
         }
+        let emptyStore = await engine.execute(
+            RESTRequest(method: "GET", path: "/tasks", query: [("status", "done")]))
+        #expect(emptyStore.body?.count == 0)
         for (title, done) in [("Write", true), ("Review", false)] {
             let created = await engine.execute(
                 RESTRequest(method: "POST", path: "/tasks", body: ["title": .string(title), "done": .bool(done)]))
             #expect(created.status == 201)
+        }
+        for name in ["page", "per_page", "perPage", "pageSize", "page_size", "limit", "offset"] {
+            let paged = await engine.execute(RESTRequest(method: "GET", path: "/tasks", query: [(name, "2")]))
+            #expect(paged.status == 200, "\(name) is paging vocabulary, not a filter")
         }
         let paged = await engine.execute(RESTRequest(method: "GET", path: "/tasks", query: [("page", "2")]))
         #expect(paged.body?.count == 2)
         let done = await engine.execute(RESTRequest(method: "GET", path: "/tasks", query: [("done", "true")]))
         #expect(done.body?.count == 1)
         #expect(done.body?[0]["title"] == .string("Write"))
+        let unknownField = await engine.execute(
+            RESTRequest(method: "GET", path: "/tasks", query: [("status", "done")]))
+        #expect(unknownField.body?.count == 0)
     }
 }
 

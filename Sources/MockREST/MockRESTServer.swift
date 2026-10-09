@@ -42,7 +42,9 @@ public final class MockRESTServer: Sendable {
     /// Starts a server on localhost.
     ///
     /// Runs on the caller's actor, so it can be awaited straight from a `@MainActor` test
-    /// method with the configuration block written inline. `.file(...)` paths are resolved
+    /// method with the configuration block written inline. That also means the spec is parsed
+    /// and the seed validated *on* that actor — fine in a test's `setUp`, but not something to
+    /// do from app-side UI code with a large spec. `.file(...)` paths are resolved
     /// against the process's working directory; from a test bundle, build an absolute path
     /// from `Bundle.module` (SwiftPM) or `Bundle(for:)` (Xcode) instead.
     ///

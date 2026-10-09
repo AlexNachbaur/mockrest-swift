@@ -187,9 +187,17 @@ Use the `MockRESTCore` product instead for in-process execution with no server (
 - Internal `$ref`s only — into `components.schemas`, `parameters`, `requestBodies`, and
   `responses`. External and remote refs fail with a clear error.
 - JSON request/response bodies only (`406` for other `Accept` types); form/multipart are a
-  later milestone. A non-JSON body still reaches a hand-written endpoint, as a string.
+  later milestone. A body sent with a non-JSON `Content-Type` (`text/plain`, `text/csv`, …)
+  still reaches a hand-written endpoint, as a string. A body with no `Content-Type`, or with
+  the `application/x-www-form-urlencoded` label URLSession and curl apply by default, is read
+  as JSON when it opens with `{` or `[` and as a string otherwise.
 - Cookie parameters are accepted and ignored. Required query and header parameters are
-  enforced (`400`).
+  enforced (`400`) on spec-driven and auto-CRUD routes; a DSL endpoint that overrides a spec
+  route enforces nothing — the handler sees the raw request.
+- `HEAD` is answered by the matching `GET` route: the handler runs (side effects included) and
+  a queued `failNext` fault is consumed, exactly as for the `GET`.
+- `oneOf` is treated like `anyOf`: an embedded object is accepted by the first variant it
+  validates against, in declared order, rather than being required to match exactly one.
 - Objects that declare `properties` reject unknown keys unless the schema sets
   `additionalProperties` — that strictness is what turns a seed or request typo into a
   "did you mean". `type: object` with no `properties` is free-form.

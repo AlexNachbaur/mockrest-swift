@@ -122,6 +122,73 @@ import Testing
         return (entry["message"].stringValue ?? "", entry["path"].stringValue)
     }
 
+    // MARK: - readOnly
+
+    /// Generated specs mark `id`/`createdAt` both `required` and `readOnly`: the server fills
+    /// them, so a request must be allowed to omit them — at the top level and inside nested
+    /// objects and array elements alike.
+    static let readOnlySpec = """
+        openapi: 3.0.3
+        info: {title: Orders, version: 1.0.0}
+        paths:
+          /orders:
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema: {$ref: '#/components/schemas/Order'}
+              responses:
+                '201':
+                  description: created
+                  content:
+                    application/json:
+                      schema: {$ref: '#/components/schemas/Order'}
+        components:
+          schemas:
+            Line:
+              type: object
+              required: [id, sku]
+              properties:
+                id: {type: string, readOnly: true}
+                sku: {type: string}
+            Customer:
+              type: object
+              required: [name, createdAt]
+              properties:
+                name: {type: string}
+                createdAt: {type: string, format: date-time, readOnly: true}
+            Order:
+              type: object
+              required: [id, lines, customer]
+              properties:
+                id: {type: string, readOnly: true}
+                lines: {type: array, items: {$ref: '#/components/schemas/Line'}}
+                customer: {$ref: '#/components/schemas/Customer'}
+                meta: {type: object, additionalProperties: {type: string}}
+        """
+
+    @Test func readOnlyFieldsMayBeOmittedEvenWhenRequired() async throws {
+        let engine = try await MockRESTEngine(spec: .yaml(Self.readOnlySpec))
+        let response = await post(
+            engine, "/orders",
+            ["lines": [["sku": "A-1"]], "customer": ["name": "Avery"]])
+        #expect(response.status == 201, "\(firstError(response))")
+        // Required fields that are not readOnly are still enforced at every depth.
+        let missingSKU = await post(engine, "/orders", ["lines": [["id": "l1"]], "customer": ["name": "Avery"]])
+        #expect(missingSKU.status == 422)
+        #expect(firstError(missingSKU).message == "Missing required field 'sku' of 'Line'")
+    }
+
+    @Test func typedAdditionalPropertiesDoNotAdmitNull() async throws {
+        let engine = try await MockRESTEngine(spec: .yaml(Self.readOnlySpec))
+        let response = await post(
+            engine, "/orders",
+            ["lines": [], "customer": ["name": "Avery"], "meta": ["note": .null]])
+        #expect(response.status == 422)
+        #expect(firstError(response).path == "body.meta.note")
+    }
+
     // MARK: - Nested required
 
     @Test func embeddedObjectsEnforceTheirRequiredFields() async throws {

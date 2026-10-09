@@ -66,6 +66,10 @@ indirect enum SchemaNode: Sendable, Hashable {
     struct Property: Sendable, Hashable {
         var node: SchemaNode
         var nullable: Bool
+        /// `readOnly: true` — the server sets it, so a request body may omit it even when the
+        /// schema lists it as `required` (OpenAPI 3.0 §4.7.24.2). Generated specs mark `id` and
+        /// `createdAt` this way as a matter of course.
+        var readOnly = false
     }
 
     /// A short human-readable description for diagnostics.

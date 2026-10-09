@@ -57,7 +57,8 @@ written inline in a `@MainActor` test method.
 - **Parameters:** `in: path`, `query`, and `header` are modeled; `in: cookie` is accepted and
   ignored. A request missing a `required: true` query or header parameter gets a `400` naming
   it (header parameters named `Accept`, `Content-Type`, or `Authorization` are ignored, as
-  OpenAPI specifies).
+  OpenAPI specifies). This applies to spec-driven and auto-CRUD routes only: a DSL endpoint
+  that overrides a spec route receives the raw request and enforces nothing itself.
 - **Objects:** an object that declares `properties` is closed unless it opts in with
   `additionalProperties: true` or a schema — unknown keys in seeds and request bodies are
   rejected with a "did you mean", which is what catches typos. `type: object` with no
@@ -180,9 +181,11 @@ CRUD against the shared store, all overridable by a DSL endpoint of the same met
   `offset`, and `page` are filled from the query; other properties are generated. Cursor
   pagination is deferred.
 - **Filtering/sorting (§9.7).** `?field=value` filters by equality, `?sort=field` /
-  `?sort=-field` sorts. A query parameter is a filter only when it names a field of the
-  collection (a schema property, or a field some stored record has); any other parameter —
-  `?page=2`, `?include=owner`, a cache-buster — is ignored. Filters match **stored** values;
+  `?sort=-field` sorts. With a spec, a query parameter is a filter only when it names a
+  property of the collection's schema; any other parameter — `?include=owner`, a cache-buster
+  — is ignored. Without a spec (DSL-only `Resource`s) there is no schema to consult, so every
+  parameter filters except the pagination/sorting vocabulary (`limit`, `offset`, `sort`,
+  `page`, `per_page`, `perPage`, `pageSize`, `page_size`). Filters match **stored** values;
   fields filled by generators at read time are not filterable. Kept minimal and documented;
   complex query semantics are a non-goal (this is a test mock, not a query engine).
 - **Validation (§9.8).** POST/PUT/PATCH bodies validate against the schema; violations → `422`

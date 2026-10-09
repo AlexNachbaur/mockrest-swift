@@ -44,13 +44,21 @@ import Testing
 
     /// The call site an XCUITest `setUp` has: main-actor-isolated, with a configuration block
     /// capturing local state.
+    /// Main-actor-isolated state of the kind a test class holds (an `XCUIApplication`, say):
+    /// non-Sendable, so capturing it is what Swift 6 refused before the fix.
+    @MainActor
+    private final class Fixture {
+        var greeting = "hello"
+    }
+
     @MainActor
     @Test func serverStartsFromAMainActorContext() async throws {
-        let greeting = "hello"
+        let fixture = Fixture()
         let server = try await MockRESTServer.start(
             spec: .yaml(IntegrationFixtures.spec),
             seed: .yaml(IntegrationFixtures.seed)
         ) {
+            let greeting = fixture.greeting
             Get("/greeting") { _, _ in .ok(["greeting": .string(greeting)]) }
         }
         try await withServer(server) { server in
@@ -128,6 +136,17 @@ import Testing
             let text = try await request(
                 "POST", "/login", on: server, body: Data("hello".utf8), contentType: "text/plain; charset=utf-8")
             #expect(try MockValue.fromJSONData(text.data)["received"] == .string("hello"))
+
+            // A declared non-JSON type is believed even when the body happens to open like JSON.
+            let braces = try await request(
+                "POST", "/login", on: server, body: Data("[INFO] started".utf8), contentType: "text/plain")
+            #expect(braces.status == 200)
+            #expect(try MockValue.fromJSONData(braces.data)["received"] == .string("[INFO] started"))
+
+            // No declared type at all: judged by the first byte, like the form-urlencoded default.
+            let untyped = try await request(
+                "POST", "/login", on: server, body: Data("plain words".utf8), contentType: nil)
+            #expect(try MockValue.fromJSONData(untyped.data)["received"] == .string("plain words"))
 
             // Spec-driven routes still expect JSON, and say so with a field path.
             let crud = try await request(

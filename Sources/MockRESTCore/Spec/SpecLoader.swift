@@ -150,7 +150,11 @@ struct SpecLoader {
                 let (_, typeListNullable) = try parseType(propertyFields["type"], at: propertyPath)
                 nullable = nullable || typeListNullable || Self.unionDeclaresNull(propertyFields)
                 let node = try parseNode(value, at: propertyPath)
-                properties[name] = SchemaNode.Property(node: node, nullable: nullable)
+                properties[name] = SchemaNode.Property(
+                    node: node,
+                    nullable: nullable,
+                    readOnly: propertyFields["readOnly"]?.boolValue ?? false
+                )
             }
         }
         // Keys beyond `properties`. OpenAPI's default is "anything goes", but MockREST keeps

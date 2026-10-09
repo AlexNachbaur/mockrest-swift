@@ -148,8 +148,10 @@ the port binds, and every error names a document path. Read the path first.
    spec or seed problem, and the message says where.
 2. While paused at a breakpoint: `curl http://127.0.0.1:PORT/health` answers `ok`, and
    `curl http://127.0.0.1:PORT/<a collection path>` returns the seeded records.
-3. A request to a path the spec does not declare returns a `404` that names what is
-   registered — use it to spot base-URL or path-prefix mistakes in the app.
+3. A request to a path the spec does not declare returns `404 No route matches …` — use it to
+   spot base-URL or path-prefix mistakes in the app. (A path no *service* claims at all, when
+   MockREST shares a `MockHost` with MockQL, gets the host's `404` naming the registered
+   services.)
 
 ## Reference
 

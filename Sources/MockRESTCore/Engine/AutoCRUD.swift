@@ -10,7 +10,13 @@ struct AutoCRUD {
 
     /// Query parameter names with engine-defined meaning on list endpoints. Any other name is
     /// an equality filter when it names a field of the collection, and is ignored otherwise.
-    private static let reservedQueryParams: Set<String> = ["limit", "offset", "sort"]
+    /// Parameters that never filter: the pagination and sorting vocabulary this engine
+    /// understands, plus the page-number spellings the envelope synthesizer recognizes, so a
+    /// DSL-only collection (which has no schema to say what is a field) does not empty itself
+    /// for `?page=2`.
+    private static let reservedQueryParams: Set<String> = [
+        "limit", "offset", "sort", "page", "per_page", "perPage", "pageSize", "page_size",
+    ]
 
     /// The routes this resource contributes: list/create on the base path, get/replace/merge/
     /// delete on `{base}/{id}`.
@@ -36,13 +42,15 @@ struct AutoCRUD {
         return { request, state in
             var records = state.records(ofType: resource.schema)
 
-            // ?field=value filters by equality on the stored value. A parameter that names no
-            // field of this collection (`?page=2`, `?include=owner`, a cache-buster) is not a
-            // filter — treating it as one would empty every list a real client asks for.
-            let declared = spec?.objectProperties(of: resource.schema) ?? [:]
-            let collection = records
+            // ?field=value filters by equality on the stored value. With a spec, a parameter
+            // that names no property of the collection's schema (`?include=owner`, a
+            // cache-buster) is not a filter — treating it as one would empty every list a real
+            // client asks for. Without a spec there is no schema to consult, so every
+            // non-reserved parameter filters; deciding by what the store happens to contain
+            // would make the same query mean different things before and after a POST.
+            let declared = spec?.objectProperties(of: resource.schema)
             for (name, value) in request.query where !Self.reservedQueryParams.contains(name) {
-                guard declared[name] != nil || collection.contains(where: { $0.objectValue?[name] != nil }) else {
+                if let declared, declared[name] == nil {
                     continue
                 }
                 records = records.filter { Self.fieldMatches($0[name], query: value) }

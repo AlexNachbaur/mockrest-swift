@@ -78,11 +78,12 @@ struct SchemaCoercion {
             if let property = shape.properties[name] {
                 coerced[name] = try coerce(value, to: property, at: fieldPath, requireRequired: requireRequired)
             } else if let additional = shape.additional {
-                // Extra keys on an open object: nulls pass, everything else coerces against
-                // the `additionalProperties` schema.
+                // Extra keys on an open object coerce against the `additionalProperties`
+                // schema. A typed one does not admit `null` any more than a declared property
+                // would (`.any` admits everything, nulls included).
                 coerced[name] = try coerce(
                     value,
-                    to: SchemaNode.Property(node: additional, nullable: true),
+                    to: SchemaNode.Property(node: additional, nullable: additional == .any),
                     at: fieldPath,
                     requireRequired: requireRequired
                 )
@@ -93,7 +94,13 @@ struct SchemaCoercion {
             }
         }
         if requireRequired {
-            for name in shape.required.sorted() where coerced[name] == nil && !skipRequiredFields.contains(name) {
+            // A `readOnly` property is the server's to fill, so a request may leave it out even
+            // when it is `required` — that combination is how generated specs describe ids and
+            // timestamps, and rejecting it would refuse every real-world create.
+            for name in shape.required.sorted()
+            where coerced[name] == nil && !skipRequiredFields.contains(name)
+                && shape.properties[name]?.readOnly != true
+            {
                 let suffix = owner.map { " of '\($0)'" } ?? ""
                 throw error("Missing required field '\(name)'\(suffix)", at: path)
             }
