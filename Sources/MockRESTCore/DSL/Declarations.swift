@@ -109,21 +109,67 @@ public struct Resource: MockRESTDeclaration {
 }
 
 /// Collects `MockRESTServer`/`MockRESTEngine` configuration declarations.
+///
+/// The block supports ordinary control flow, so declarations can depend on the test at hand:
+///
+/// ```swift
+/// let server = try await MockRESTServer.start(spec: .file(specPath)) {
+///     if simulateOutage {
+///         Get("/status") { _, _ in .status(503) }
+///     }
+///     for flag in enabledFlags {
+///         Get("/flags/\(flag)") { _, _ in .ok(["enabled": true]) }
+///     }
+/// }
+/// ```
 @resultBuilder
 public struct MockRESTBuilder {
+    /// Lifts one declaration into the builder's component type.
+    public static func buildExpression(_ declaration: any MockRESTDeclaration) -> [any MockRESTDeclaration] {
+        [declaration]
+    }
+
+    /// An empty block declares nothing.
+    public static func buildBlock() -> [any MockRESTDeclaration] {
+        []
+    }
+
+    /// Concatenates the statements of a block, in source order.
+    public static func buildBlock(_ components: [any MockRESTDeclaration]...) -> [any MockRESTDeclaration] {
+        components.flatMap { $0 }
+    }
+
+    /// Combines declarations passed directly, without the builder syntax. Kept for source
+    /// compatibility with 0.1.x; blocks written with the builder go through
+    /// ``buildExpression(_:)`` and the array-based `buildBlock` instead.
     public static func buildBlock(_ declarations: any MockRESTDeclaration...) -> [any MockRESTDeclaration] {
         declarations
     }
 
+    /// Supports `if` without `else`: an untaken branch declares nothing.
     public static func buildOptional(_ declarations: [any MockRESTDeclaration]?) -> [any MockRESTDeclaration] {
         declarations ?? []
     }
 
+    /// Supports the first branch of `if`/`else` and `switch`.
     public static func buildEither(first declarations: [any MockRESTDeclaration]) -> [any MockRESTDeclaration] {
         declarations
     }
 
+    /// Supports the second branch of `if`/`else` and `switch`.
     public static func buildEither(second declarations: [any MockRESTDeclaration]) -> [any MockRESTDeclaration] {
+        declarations
+    }
+
+    /// Supports `for … in` loops: every iteration's declarations, in order.
+    public static func buildArray(_ components: [[any MockRESTDeclaration]]) -> [any MockRESTDeclaration] {
+        components.flatMap { $0 }
+    }
+
+    /// Supports `if #available` branches.
+    public static func buildLimitedAvailability(
+        _ declarations: [any MockRESTDeclaration]
+    ) -> [any MockRESTDeclaration] {
         declarations
     }
 }

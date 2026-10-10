@@ -9,6 +9,9 @@ import MockCore
 struct SpecLoader {
     private let sourceName: String?
     private var spec = RESTSpec()
+    /// The raw `components` mapping, for resolving `$ref`s to parameters, request bodies, and
+    /// responses.
+    private var components: [String: MockValue] = [:]
 
     private init(sourceName: String?) {
         self.sourceName = sourceName
@@ -37,7 +40,8 @@ struct SpecLoader {
         guard version.hasPrefix("3.0") || version.hasPrefix("3.1") else {
             throw error("Unsupported OpenAPI version '\(version)'; MockREST supports 3.0.x and 3.1.x", at: "openapi")
         }
-        if let components = root["components"]?.objectValue, let schemas = components["schemas"]?.objectValue {
+        components = root["components"]?.objectValue ?? [:]
+        if let schemas = components["schemas"]?.objectValue {
             for name in schemas.keys.sorted() {
                 guard let value = schemas[name] else { continue }
                 let path = "components.schemas.\(name)"
@@ -146,8 +150,25 @@ struct SpecLoader {
                 let (_, typeListNullable) = try parseType(propertyFields["type"], at: propertyPath)
                 nullable = nullable || typeListNullable || Self.unionDeclaresNull(propertyFields)
                 let node = try parseNode(value, at: propertyPath)
-                properties[name] = SchemaNode.Property(node: node, nullable: nullable)
+                properties[name] = SchemaNode.Property(
+                    node: node,
+                    nullable: nullable,
+                    readOnly: propertyFields["readOnly"]?.boolValue ?? false
+                )
             }
+        }
+        // Keys beyond `properties`. OpenAPI's default is "anything goes", but MockREST keeps
+        // objects that declare properties closed unless the spec opts in — that strictness is
+        // what turns a seed or request typo into a "did you mean" diagnostic. An object with
+        // no declared properties at all is free-form: there is nothing to typo against.
+        var additional: SchemaNode?
+        switch fields["additionalProperties"] {
+        case nil, .some(.null):
+            additional = fields["properties"] == nil ? .any : nil
+        case .some(.bool(let allowed)):
+            additional = allowed ? .any : nil
+        case .some(let schema):
+            additional = try parseNode(schema, at: "\(path).additionalProperties")
         }
         var required: Set<String> = []
         if let requiredList = fields["required"]?.listValue {
@@ -155,14 +176,16 @@ struct SpecLoader {
                 guard let name = entry.stringValue else {
                     throw error("'required' entries must be strings", at: "\(path).required")
                 }
-                guard properties[name] != nil else {
+                // On an open object a required key need not be a declared property; on a closed
+                // one it could never be supplied, so it is a typo.
+                guard properties[name] != nil || additional != nil else {
                     let clause = Suggestion.clause(for: name, in: properties.keys)
                     throw error("'required' names unknown property '\(name)'.\(clause)", at: "\(path).required")
                 }
                 required.insert(name)
             }
         }
-        return .object(properties: properties, required: required)
+        return .object(properties: properties, required: required, additional: additional)
     }
 
     private func parseReference(_ value: MockValue, at path: String) throws -> SchemaNode {
@@ -270,15 +293,10 @@ struct SpecLoader {
 
         var requestBody: SchemaNode?
         var requestBodyRequired = false
-        if let body = fields["requestBody"], !body.isNull {
-            if body.objectValue?["$ref"] != nil {
-                throw error(
-                    "requestBody '$ref's (components.requestBodies) are not supported in v1; "
-                        + "inline the body definition",
-                    at: "\(path).requestBody"
-                )
-            }
-            requestBody = try parseJSONContentSchema(body, at: "\(path).requestBody")
+        if let declared = fields["requestBody"], !declared.isNull {
+            let (body, bodyPath) = try resolveComponent(
+                declared, section: "requestBodies", at: "\(path).requestBody")
+            requestBody = try parseJSONContentSchema(body, at: bodyPath)
             requestBodyRequired = body["required"].boolValue ?? false
         }
 
@@ -286,25 +304,25 @@ struct SpecLoader {
         var responseSchema: SchemaNode?
         var responseExample: MockValue?
         if let responses = fields["responses"]?.objectValue {
-            // Every response entry is checked — a $ref in a 400 (or a second 2xx) must fail
-            // the same way one in the selected success response does.
-            for key in responses.keys.sorted() where responses[key]?.objectValue?["$ref"] != nil {
-                throw error(
-                    "Response '$ref's (components.responses) are not supported in v1; "
-                        + "inline the response definition",
-                    at: "\(path).responses.\(key)"
-                )
+            // Every response entry is resolved — a broken $ref in a 400 (or a second 2xx) must
+            // fail the same way one in the selected success response does.
+            var resolved: [String: (value: MockValue, path: String)] = [:]
+            for key in responses.keys.sorted() {
+                guard let declared = responses[key], !declared.isNull else { continue }
+                resolved[key] = try resolveComponent(
+                    declared, section: "responses", at: "\(path).responses.\(key)")
             }
             let statuses = responses.keys.compactMap(Int.init).filter { (200..<300).contains($0) }.sorted()
             if let status = statuses.first {
                 successStatus = status
-                let response = responses[String(status)] ?? .null
-                if !response.isNull, response["content"] != nil || response["description"] != nil {
-                    responseSchema = try parseOptionalJSONContentSchema(response, at: "\(path).responses.\(status)")
+                if let (response, responsePath) = resolved[String(status)],
+                    response["content"] != nil || response["description"] != nil
+                {
+                    responseSchema = try parseOptionalJSONContentSchema(response, at: responsePath)
                     responseExample = Self.example(in: response)
                 }
-            } else if let fallback = responses["default"], !fallback.isNull {
-                responseSchema = try parseOptionalJSONContentSchema(fallback, at: "\(path).responses.default")
+            } else if let (fallback, fallbackPath) = resolved["default"] {
+                responseSchema = try parseOptionalJSONContentSchema(fallback, at: fallbackPath)
                 responseExample = Self.example(in: fallback)
             }
         }
@@ -328,33 +346,78 @@ struct SpecLoader {
             throw error("'parameters' must be a list", at: path)
         }
         var parameters: [SpecParameter] = []
-        for (index, entry) in entries.enumerated() {
-            let entryPath = "\(path)[\(index)]"
-            if entry.objectValue?["$ref"] != nil {
-                throw error(
-                    "Parameter '$ref's (components.parameters) are not supported in v1; "
-                        + "inline the parameter definition",
-                    at: entryPath
-                )
-            }
+        for (index, declared) in entries.enumerated() {
+            let (entry, entryPath) = try resolveComponent(
+                declared, section: "parameters", at: "\(path)[\(index)]")
             guard let name = entry["name"].stringValue else {
                 throw error("Parameter is missing 'name'", at: entryPath)
             }
             guard let location = entry["in"].stringValue else {
                 throw error("Parameter '\(name)' is missing 'in'", at: entryPath)
             }
-            guard ["path", "query", "header"].contains(location) else {
+            guard ["path", "query", "header", "cookie"].contains(location) else {
+                let clause = Suggestion.clause(for: location, in: ["path", "query", "header", "cookie"])
                 throw error(
                     "Parameter '\(name)' has unsupported location '\(location)' "
-                        + "(supported: path, query, header)",
+                        + "(supported: path, query, header, cookie).\(clause)",
                     at: entryPath
                 )
+            }
+            // Cookie parameters are accepted so real-world specs load, and otherwise ignored:
+            // UI tests rarely manage a cookie jar against a mock, so nothing is enforced.
+            if location == "cookie" {
+                continue
             }
             parameters.append(
                 SpecParameter(name: name, location: location, required: entry["required"].boolValue ?? false)
             )
         }
         return parameters
+    }
+
+    /// Follows a `$ref` into `components.<section>` (parameters, requestBodies, responses) and
+    /// returns the definition it names, with the document path diagnostics inside it should
+    /// carry. A value that is not a `$ref` is returned unchanged.
+    private func resolveComponent(
+        _ value: MockValue,
+        section: String,
+        at path: String
+    ) throws -> (value: MockValue, path: String) {
+        var current = value
+        var currentPath = path
+        var visited: Set<String> = []
+        while let ref = current.objectValue?["$ref"] {
+            guard let target = ref.stringValue else {
+                throw error("'$ref' must be a string", at: "\(currentPath).$ref")
+            }
+            let prefix = "#/components/\(section)/"
+            guard target.hasPrefix(prefix) else {
+                throw error(
+                    "External or mismatched '$ref' '\(target)' is not supported in v1; "
+                        + "only internal '\(prefix)…' references are resolved here",
+                    at: "\(currentPath).$ref"
+                )
+            }
+            let name = String(target.dropFirst(prefix.count))
+            let available = components[section]?.objectValue ?? [:]
+            guard let definition = available[name], !definition.isNull else {
+                let clause = Suggestion.clause(for: name, in: available.keys)
+                throw error(
+                    "Unknown component '\(name)' referenced in 'components.\(section)'.\(clause)",
+                    at: "\(currentPath).$ref"
+                )
+            }
+            guard visited.insert(name).inserted else {
+                throw error(
+                    "Circular '$ref' chain detected while resolving '\(target)': "
+                        + "'\(name)' is reached twice",
+                    at: "\(currentPath).$ref"
+                )
+            }
+            current = definition
+            currentPath = "components.\(section).\(name)"
+        }
+        return (current, currentPath)
     }
 
     /// Extracts the `content.application/json.schema` of a request body or response.
@@ -413,9 +476,12 @@ struct SpecLoader {
                 }
             case .array(let element):
                 try check(element, at: path)
-            case .object(let properties, _):
+            case .object(let properties, _, let additional):
                 for (name, property) in properties.sorted(by: { $0.key < $1.key }) {
                     try check(property.node, at: "\(path).\(name)")
+                }
+                if let additional {
+                    try check(additional, at: "\(path).additionalProperties")
                 }
             default:
                 break

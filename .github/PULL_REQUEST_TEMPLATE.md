@@ -4,8 +4,7 @@
 
 ## Checklist
 
-- [ ] `swift build` and `swift test` pass locally
-- [ ] `swift format lint --strict --recursive Sources Tests Package.swift` passes
+- [ ] `make check` passes locally (lint, build, test, and the DocC build — CI does not build docs)
 - [ ] Tests added or updated for behavioral changes
 - [ ] No force unwraps introduced in production code; concurrency uses `async`/`await` (no `DispatchQueue`)
 - [ ] Public API changes are documented (doc comments, README, `docs/design/` as appropriate)

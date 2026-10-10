@@ -81,7 +81,7 @@ struct ResourceInference {
                 if case .object = spec.schemas[name] { return name }
             case .array(of: .reference(let name)):
                 if case .object = spec.schemas[name] { return name }
-            case .object(let properties, _):
+            case .object(let properties, _, _):
                 // An envelope: exactly one array-of-ref property identifies the item schema.
                 let arrayRefs = properties.compactMap { _, property -> String? in
                     if case .array(of: .reference(let name)) = property.node { return name }
@@ -104,7 +104,7 @@ struct ResourceInference {
         for operation in operations where operation.method == "GET" {
             // The list GET is the one on the collection path itself (no trailing parameter).
             guard case .literal = operation.pattern.segments.last else { continue }
-            guard case .object(let properties, _) = operation.responseSchema else { continue }
+            guard case .object(let properties, _, _) = operation.responseSchema else { continue }
             let arrayProperties = properties.filter {
                 if case .array(of: .reference(itemSchema)) = $0.value.node { return true }
                 return false

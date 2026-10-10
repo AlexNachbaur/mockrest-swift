@@ -11,11 +11,20 @@ Most tests need exactly one call:
 import MockREST
 
 let server = try await MockRESTServer.start(
-    spec: .file("Schemas/api.yaml"),
-    seed: .file("Fixtures/world.yaml")
+    spec: .file(specPath),
+    seed: .file(seedPath)
 )
 app.launchEnvironment["API_BASE_URL"] = server.url.absoluteString
 ```
+
+`.file(...)` paths are resolved against the process's working directory, which for a test
+bundle is rarely the project folder. Bundle the spec and seed as test resources and pass an
+absolute path: `Bundle.module.path(forResource:ofType:)` in a SwiftPM test target,
+`Bundle(for: MyUITests.self).path(forResource:ofType:)` in an Xcode UI-test bundle
+(`Bundle.main` there is the test runner, not your bundle).
+
+``MockRESTServer/start(spec:seed:generators:serverSeed:options:host:port:configuration:)`` can
+be awaited directly from a `@MainActor` test method.
 
 ``MockRESTServer`` binds an ephemeral loopback port (safe for parallel test runs), validates
 everything before accepting connections, and serves the engine's routes as JSON. Use

@@ -21,8 +21,19 @@ struct RESTSpec: Sendable {
     /// The properties of a named object schema, or `nil` when the name is unknown or not an
     /// object.
     func objectProperties(of name: String) -> [String: SchemaNode.Property]? {
-        guard case .object(let properties, _) = schemas[name] else { return nil }
+        guard case .object(let properties, _, _) = schemas[name] else { return nil }
         return properties
+    }
+
+    /// Follows a named schema through pure alias hops (`A: {$ref: B}`) to the schema that
+    /// actually defines a shape. Alias cycles are rejected at load, so this terminates.
+    func aliasTarget(of name: String) -> (name: String, node: SchemaNode)? {
+        var current = name
+        while let node = schemas[current] {
+            guard case .reference(let next) = node else { return (current, node) }
+            current = next
+        }
+        return nil
     }
 }
 
@@ -38,8 +49,11 @@ indirect enum SchemaNode: Sendable, Hashable {
     case boolean
     /// An array of a single element shape.
     case array(of: SchemaNode)
-    /// An inline object with named properties.
-    case object(properties: [String: Property], required: Set<String>)
+    /// An object with named properties. `additional` is the shape of keys beyond `properties`:
+    /// `nil` when the object is closed (unknown keys are rejected, which is what catches seed
+    /// and request typos), `.any` for a free-form object, or the declared
+    /// `additionalProperties` schema.
+    case object(properties: [String: Property], required: Set<String>, additional: SchemaNode?)
     /// A `$ref` to a named schema in `components.schemas`.
     case reference(String)
     /// A `oneOf`/`anyOf` union of named schemas; values in this position need qualified
@@ -52,6 +66,10 @@ indirect enum SchemaNode: Sendable, Hashable {
     struct Property: Sendable, Hashable {
         var node: SchemaNode
         var nullable: Bool
+        /// `readOnly: true` — the server sets it, so a request body may omit it even when the
+        /// schema lists it as `required` (OpenAPI 3.0 §4.7.24.2). Generated specs mark `id` and
+        /// `createdAt` this way as a matter of course.
+        var readOnly = false
     }
 
     /// A short human-readable description for diagnostics.
@@ -91,7 +109,7 @@ struct SpecOperation: Sendable {
 /// One declared operation parameter.
 struct SpecParameter: Sendable {
     var name: String
-    /// `"path"`, `"query"`, or `"header"`.
+    /// `"path"`, `"query"`, or `"header"` (cookie parameters are accepted but not modeled).
     var location: String
     var required: Bool
 }

@@ -20,10 +20,11 @@ struct SchemaCoercion {
     /// fields.
     ///
     /// - Parameters:
-    ///   - requireRequired: Enforce the schema's `required` list (request bodies for POST/PUT).
-    ///     Seeds and PATCH bodies skip it — omitted fields are generated or left unchanged.
-    ///   - skipRequiredFields: Field names exempt from the `required` check (the id field of a
-    ///     create, which the server generates).
+    ///   - requireRequired: Enforce the schema's `required` list, here and in every object
+    ///     nested inside the record (request bodies for POST/PUT). Seeds and PATCH bodies skip
+    ///     it — omitted fields are generated or left unchanged.
+    ///   - skipRequiredFields: Top-level field names exempt from the `required` check (the id
+    ///     field of a create, which the server generates).
     func coerceRecord(
         _ fields: [String: MockValue],
         schemaName: String,
@@ -32,80 +33,112 @@ struct SchemaCoercion {
         requireRequired: Bool = false,
         skipRequiredFields: Set<String> = []
     ) throws -> [String: MockValue] {
-        guard case .object(let properties, let required) = spec.schemas[schemaName] else {
+        guard case .object(let properties, let required, let additional) = spec.schemas[schemaName] else {
             throw error("'\(schemaName)' is not an object schema", at: path)
         }
+        var fields = fields
+        // Integer ids coerce to string ids (as in MockQL) when the id field is string-typed.
+        if let idField, case .some(.int(let number)) = fields[idField],
+            case .some(.string) = properties[idField]?.node
+        {
+            fields[idField] = .string(String(number))
+        }
+        return try coerceFields(
+            fields,
+            shape: ObjectShape(properties: properties, required: required, additional: additional),
+            owner: schemaName,
+            at: path,
+            requireRequired: requireRequired,
+            skipRequiredFields: skipRequiredFields
+        )
+    }
+
+    /// The parts of an object schema field coercion works from.
+    private struct ObjectShape {
+        var properties: [String: SchemaNode.Property]
+        var required: Set<String>
+        var additional: SchemaNode?
+    }
+
+    /// The one place object fields are checked: declared properties coerce against their
+    /// schema, other keys against `additionalProperties` (or are rejected with a suggestion
+    /// when the object is closed), and `required` is enforced when asked.
+    private func coerceFields(
+        _ fields: [String: MockValue],
+        shape: ObjectShape,
+        owner: String?,
+        at path: String,
+        requireRequired: Bool,
+        skipRequiredFields: Set<String> = []
+    ) throws -> [String: MockValue] {
         var coerced: [String: MockValue] = [:]
         for name in fields.keys.sorted() {
-            guard let property = properties[name] else {
-                let clause = Suggestion.clause(for: name, in: properties.keys)
-                throw error("Unknown field '\(name)' on '\(schemaName)'.\(clause)", at: "\(path).\(name)")
+            guard let value = fields[name] else { continue }
+            let fieldPath = "\(path).\(name)"
+            if let property = shape.properties[name] {
+                coerced[name] = try coerce(value, to: property, at: fieldPath, requireRequired: requireRequired)
+            } else if let additional = shape.additional {
+                // Extra keys on an open object coerce against the `additionalProperties`
+                // schema. A typed one does not admit `null` any more than a declared property
+                // would (`.any` admits everything, nulls included).
+                coerced[name] = try coerce(
+                    value,
+                    to: SchemaNode.Property(node: additional, nullable: additional == .any),
+                    at: fieldPath,
+                    requireRequired: requireRequired
+                )
+            } else {
+                let clause = Suggestion.clause(for: name, in: shape.properties.keys)
+                let suffix = owner.map { " on '\($0)'" } ?? ""
+                throw error("Unknown field '\(name)'\(suffix).\(clause)", at: fieldPath)
             }
-            guard var value = fields[name] else { continue }
-            // Integer ids coerce to string ids (as in MockQL) when the id field is string-typed.
-            if name == idField, case .int(let number) = value, case .string = property.node {
-                value = .string(String(number))
-            }
-            coerced[name] = try coerce(value, to: property, at: "\(path).\(name)")
         }
         if requireRequired {
-            for name in required.sorted() where coerced[name] == nil && !skipRequiredFields.contains(name) {
-                throw error("Missing required field '\(name)' of '\(schemaName)'", at: path)
+            // A `readOnly` property is the server's to fill, so a request may leave it out even
+            // when it is `required` — that combination is how generated specs describe ids and
+            // timestamps, and rejecting it would refuse every real-world create.
+            for name in shape.required.sorted()
+            where coerced[name] == nil && !skipRequiredFields.contains(name)
+                && shape.properties[name]?.readOnly != true
+            {
+                let suffix = owner.map { " of '\($0)'" } ?? ""
+                throw error("Missing required field '\(name)'\(suffix)", at: path)
             }
         }
         return coerced
     }
 
-    /// Coerces a request body against an operation's declared schema, enforcing the object's
-    /// `required` list (directly or through a `$ref` to an object schema) the way CRUD
+    /// Coerces a request body against an operation's declared schema, enforcing `required`
+    /// lists throughout (directly or through a `$ref` to an object schema) the way CRUD
     /// validation does.
     func coerceBody(_ value: MockValue, to node: SchemaNode, at path: String) throws -> MockValue {
-        switch node {
-        case .reference(var name):
-            // Follow alias chains (A -> B -> Object) to the terminal schema; cycles were
-            // rejected at load, so this terminates. Required enforcement must not depend on
-            // how many alias hops the spec author used.
-            while case .reference(let next) = spec.schemas[name] ?? .any {
-                name = next
-            }
-            if case .object = spec.schemas[name] ?? .any {
-                guard let fields = value.objectValue else {
-                    throw error("Expected an object, found \(value)", at: path)
-                }
-                return .object(try coerceRecord(fields, schemaName: name, at: path, requireRequired: true))
-            }
-            return try coerce(value, to: node, at: path)
-        case .object(let properties, let required):
+        // Follow alias chains (A -> B -> Object) to the terminal schema; cycles were rejected
+        // at load, so this terminates. Required enforcement must not depend on how many alias
+        // hops the spec author used.
+        if case .reference(let name) = node, let target = spec.aliasTarget(of: name), case .object = target.node {
+            // A body is the object itself, never a reference to a stored record.
             guard let fields = value.objectValue else {
                 throw error("Expected an object, found \(value)", at: path)
             }
-            var coerced: [String: MockValue] = [:]
-            for name in fields.keys.sorted() {
-                guard let property = properties[name] else {
-                    let clause = Suggestion.clause(for: name, in: properties.keys)
-                    throw error("Unknown field '\(name)'.\(clause)", at: "\(path).\(name)")
-                }
-                guard let fieldValue = fields[name] else { continue }
-                coerced[name] = try coerce(fieldValue, to: property, at: "\(path).\(name)")
-            }
-            for name in required.sorted() where coerced[name] == nil {
-                throw error("Missing required field '\(name)'", at: path)
-            }
-            return .object(coerced)
-        default:
-            return try coerce(value, to: node, at: path)
+            return .object(try coerceRecord(fields, schemaName: target.name, at: path, requireRequired: true))
         }
+        return try coerce(value, to: node, at: path, requireRequired: true)
     }
 
     /// Coerces a value into a property position, handling explicit nulls.
-    func coerce(_ value: MockValue, to property: SchemaNode.Property, at path: String) throws -> MockValue {
+    func coerce(
+        _ value: MockValue,
+        to property: SchemaNode.Property,
+        at path: String,
+        requireRequired: Bool = false
+    ) throws -> MockValue {
         if value.isNull {
             if property.nullable || acceptsNullThroughIndirection(property.node) {
                 return .null
             }
             throw error("Explicit null is not allowed here (the schema is not nullable)", at: path)
         }
-        return try coerce(value, to: property.node, at: path)
+        return try coerce(value, to: property.node, at: path, requireRequired: requireRequired)
     }
 
     /// Whether a position accepts null through indirection: a `$ref` chain with a nullable hop,
@@ -133,8 +166,14 @@ struct SchemaCoercion {
         }
     }
 
-    /// Coerces a value into a schema position.
-    func coerce(_ value: MockValue, to node: SchemaNode, at path: String) throws -> MockValue {
+    /// Coerces a value into a schema position. `requireRequired` enforces `required` lists on
+    /// every object reached from here.
+    func coerce(
+        _ value: MockValue,
+        to node: SchemaNode,
+        at path: String,
+        requireRequired: Bool = false
+    ) throws -> MockValue {
         switch node {
         case .any:
             return value
@@ -183,37 +222,41 @@ struct SchemaCoercion {
             }
             return .list(
                 try items.enumerated().map { index, item in
-                    try coerce(item, to: element, at: "\(path)[\(index)]")
+                    try coerce(item, to: element, at: "\(path)[\(index)]", requireRequired: requireRequired)
                 }
             )
-        case .object(let properties, _):
+        case .object(let properties, let required, let additional):
             guard let fields = value.objectValue else {
                 throw error("Expected an object, found \(value)", at: path)
             }
-            var coerced: [String: MockValue] = [:]
-            for name in fields.keys.sorted() {
-                guard let property = properties[name] else {
-                    let clause = Suggestion.clause(for: name, in: properties.keys)
-                    throw error("Unknown field '\(name)'.\(clause)", at: "\(path).\(name)")
-                }
-                guard let fieldValue = fields[name] else { continue }
-                coerced[name] = try coerce(fieldValue, to: property, at: "\(path).\(name)")
-            }
-            return .object(coerced)
+            return .object(
+                try coerceFields(
+                    fields,
+                    shape: ObjectShape(properties: properties, required: required, additional: additional),
+                    owner: nil,
+                    at: path,
+                    requireRequired: requireRequired
+                )
+            )
         case .reference(let target):
-            return try coerceReferencePosition(value, target: target, at: path)
+            return try coerceReferencePosition(value, target: target, at: path, requireRequired: requireRequired)
         case .oneOf(let names):
-            return try coerceUnionPosition(value, names: names, at: path)
+            return try coerceUnionPosition(value, names: names, at: path, requireRequired: requireRequired)
         }
     }
 
-    private func coerceReferencePosition(_ value: MockValue, target: String, at path: String) throws -> MockValue {
+    private func coerceReferencePosition(
+        _ value: MockValue,
+        target: String,
+        at path: String,
+        requireRequired: Bool
+    ) throws -> MockValue {
         guard case .object = spec.schemas[target] else {
             // The $ref names a scalar alias — coerce against the aliased shape directly.
             guard let aliased = spec.schemas[target] else {
                 throw error("Internal error: unknown schema '\(target)'", at: path)
             }
-            return try coerce(value, to: aliased, at: path)
+            return try coerce(value, to: aliased, at: path, requireRequired: requireRequired)
         }
         switch value {
         case .string(let text):
@@ -241,13 +284,19 @@ struct SchemaCoercion {
             return value
         case .object(let fields):
             // An anonymous embedded value object, validated against the target schema.
-            return .object(try coerceRecord(fields, schemaName: target, at: path))
+            return .object(
+                try coerceRecord(fields, schemaName: target, at: path, requireRequired: requireRequired))
         default:
             throw error("Expected a reference or object for '\(target)', found \(value)", at: path)
         }
     }
 
-    private func coerceUnionPosition(_ value: MockValue, names: [String], at path: String) throws -> MockValue {
+    private func coerceUnionPosition(
+        _ value: MockValue,
+        names: [String],
+        at path: String,
+        requireRequired: Bool
+    ) throws -> MockValue {
         let possible = names.joined(separator: ", ")
         switch value {
         case .string(let text):
@@ -276,10 +325,40 @@ struct SchemaCoercion {
             }
             recordReference(typeName, id, path)
             return value
-        case .object:
+        case .object(let fields):
+            // An embedded object is whichever variant it validates against, tried in declared
+            // order. References inside it are only reported for the variant that wins.
+            var failures: [String] = []
+            for name in names {
+                guard let variant = spec.aliasTarget(of: name), case .object = variant.node else { continue }
+                var seen: [(typeName: String, id: String, path: String)] = []
+                let attempt = SchemaCoercion(
+                    spec: spec,
+                    category: category,
+                    sourceName: sourceName,
+                    recordReference: { seen.append(($0, $1, $2)) }
+                )
+                do {
+                    let coerced = try attempt.coerceRecord(
+                        fields, schemaName: variant.name, at: path, requireRequired: requireRequired)
+                    for reference in seen {
+                        recordReference(reference.typeName, reference.id, reference.path)
+                    }
+                    return .object(coerced)
+                } catch let mismatch as MockError {
+                    failures.append("\(name): \(mismatch.message)")
+                }
+            }
+            guard !failures.isEmpty else {
+                throw error(
+                    "Embedded objects cannot be used here: none of \(possible) is an object schema; "
+                        + "use a qualified reference like 'Schema:id'",
+                    at: path
+                )
+            }
             throw error(
-                "Embedded objects cannot be used in a oneOf/anyOf position; use a qualified "
-                    + "reference like 'Schema:id'",
+                "This object matches none of the possible schemas here (\(possible)) — "
+                    + failures.joined(separator: "; "),
                 at: path
             )
         default:

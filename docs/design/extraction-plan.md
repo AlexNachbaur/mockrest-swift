@@ -1,11 +1,16 @@
 # Extraction Plan — MockQL → MockCore
 
-> Status: **Design draft for review.** Describes refactoring the shipped (pre-1.0) MockQL onto the
-> new shared `MockCore` foundation **without breaking its public API or tests**. Depends on
-> `architecture.md`.
+> Status: **Completed — historical record.** The extraction this plan describes was carried
+> out: `mockcore-swift` exists, MockQL has been rebuilt on it, and MockREST was written against
+> it from the start. Nothing below is pending work; any **[OPEN]** marker is a question as it
+> stood at design time, not an open item. The text is kept unedited as a record of how the
+> platform was split. For the current state, read the `mockcore-swift` and `mockql-swift`
+> repositories themselves.
 >
-> Note: this work happens in the `mockcore-swift` and `mockql-swift` repos; it lives here only
-> because the design was done alongside MockREST. Move it to those repos once they exist.
+> Original summary: describes refactoring the shipped (pre-1.0) MockQL onto the new shared
+> `MockCore` foundation **without breaking its public API or tests**. Depends on
+> `architecture.md`. The work happened in the `mockcore-swift` and `mockql-swift` repos; the
+> plan lives here only because the design was done alongside MockREST.
 
 ## 1. Objective & success criteria
 
