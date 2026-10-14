@@ -6,8 +6,8 @@ import MockRESTCore
 ///
 /// ```swift
 /// let server = try await MockRESTServer.start(
-///     spec: .file("Schemas/api.yaml"),
-///     seed: .file("Fixtures/world.yaml")
+///     spec: .file(specPath),      // absolute paths, e.g. built from the test bundle
+///     seed: .file(seedPath)
 /// ) {
 ///     Post("/users/{id}/verify") { req, state in
 ///         state.update("User", id: req.pathParam("id")) { $0["verified"] = true }
@@ -41,10 +41,18 @@ public final class MockRESTServer: Sendable {
 
     /// Starts a server on localhost.
     ///
+    /// Runs on the caller's actor, so it can be awaited straight from a `@MainActor` test
+    /// method with the configuration block written inline. That also means the spec is parsed
+    /// and the seed validated *on* that actor — fine in a test's `setUp`, but not something to
+    /// do from app-side UI code with a large spec. `.file(...)` paths are resolved
+    /// against the process's working directory; from a test bundle, build an absolute path
+    /// from `Bundle.module` (SwiftPM) or `Bundle(for:)` (Xcode) instead.
+    ///
     /// - Parameters:
     ///   - spec: The OpenAPI 3.0/3.1 document to mock; omit for DSL-only mode.
     ///   - seed: Initial state, validated before the server starts accepting connections.
-    ///   - generators: Generators keyed by `"Schema.field"`.
+    ///   - generators: Generators keyed by `"Schema.field"` (or `"resource.field"` without a
+    ///     spec).
     ///   - serverSeed: Seed for deterministic generated data.
     ///   - options: Latency, auth simulation, and CORS behavior.
     ///   - host: Interface to bind; loopback by default — MockREST is a test tool and should
@@ -52,7 +60,7 @@ public final class MockRESTServer: Sendable {
     ///   - port: Port to bind; `0` picks an ephemeral free port (recommended for parallel
     ///     tests).
     ///   - configuration: Endpoints and resource declarations.
-    public static func start(
+    nonisolated(nonsending) public static func start(
         spec: SpecSource? = nil,
         seed: SeedSource? = nil,
         generators: [String: FieldGenerator] = [:],

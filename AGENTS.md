@@ -1,19 +1,34 @@
 # AGENTS.md
 
 Instructions for AI coding agents working **in this repository**. If you are integrating
-MockREST into another project's tests, start from the
-[README](README.md) and the [seed/spec format reference](docs/design/rest-format.md) instead.
+MockREST into another project's tests, read
+[docs/agents/integration-guide.md](docs/agents/integration-guide.md) instead.
+
+## Making decisions
+
+- **Never assume or default to the easiest solution.** When there is a real choice — an
+  architectural direction, a public-API shape, a behavior an existing test deliberately
+  asserts — stop and ask first.
+- Present the options with trade-offs and a recommendation; the maintainer has the final say.
+- Do not silently pick an approach, even when one seems obvious.
+- Decisions already recorded below are settled: build on them rather than re-asking.
 
 ## Build, test, lint
 
 ```sh
-swift build
-swift test
-swift format lint --strict --recursive Sources Tests Package.swift
-swift package generate-documentation --target MockRESTCore --target MockREST   # docs must build clean
+make check    # lint, build, test, docs — everything below, in the order CI gates them
 ```
 
-All four must pass before any commit. The documentation build is deliberately a **local** step:
+`make check` must pass before any commit. It runs:
+
+```sh
+swift format lint --strict --recursive Sources Tests Package.swift
+swift build
+swift test
+swift package generate-documentation --target MockRESTCore --target MockREST --warnings-as-errors
+```
+
+`make format` applies the formatter. The documentation build is deliberately a **local** step:
 CI does not run it, so a DocC regression will only ever be caught here.
 
 CI builds and tests on macOS, an iOS simulator, Linux (`swift:6.3` container), Windows, and an
@@ -45,7 +60,8 @@ library targets, and stick to Foundation APIs that swift-corelibs-foundation als
 - swift-format with the checked-in `.swift-format`: 120 columns, 4-space indent.
 - No force unwraps anywhere (tests use `try #require(...)`); no `DispatchQueue` — Swift
   concurrency only; prefer value types.
-- Never use caseless enums as namespaces; use structs with static members.
+- Never use caseless enums as namespaces; use a struct with static members (or, for a
+  genuinely shared resource, a `final class` with `static let shared`).
 - Swift Testing (`import Testing`) for all tests, never XCTest.
 - Every public symbol gets a doc comment; DocC must build with zero warnings.
 
@@ -59,3 +75,7 @@ library targets, and stick to Foundation APIs that swift-corelibs-foundation als
 - Stop servers/hosts explicitly at the end of a test (`try await server.stop()`) — never in a
   detached `Task` from `defer`, which races process teardown.
 - Update `CHANGELOG.md` (Unreleased section) for user-visible changes.
+- Keep the API examples in `docs/agents/integration-guide.md` compiling when the public API
+  changes — it is what agents *using* MockREST are told to read.
+- `MockRESTVersion.current` must track the newest released heading in `CHANGELOG.md`: bump
+  both in the release commit, and leave a fresh `## [Unreleased]` heading behind.

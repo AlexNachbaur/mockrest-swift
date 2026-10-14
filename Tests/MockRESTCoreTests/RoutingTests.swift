@@ -37,6 +37,85 @@ import Testing
         #expect(throws: MockError.self) { try RoutePattern(parsing: "/users/{}") }
         #expect(throws: MockError.self) { try RoutePattern(parsing: "/users/{id}/{id}") }
         #expect(throws: MockError.self) { try RoutePattern(parsing: "/users//orders") }
+        #expect(throws: MockError.self) { try RoutePattern(parsing: "/users/id}") }
+        #expect(throws: MockError.self) { try RoutePattern(parsing: "/users/{a{b}}") }
+    }
+
+    @Test func parametersMayShareASegmentWithLiteralText() throws {
+        let file = try RoutePattern(parsing: "/files/{name}.json")
+        #expect(file.parameterNames == ["name"])
+        #expect(file.match("/files/report.json") == ["name": "report"])
+        // The parameter takes as much as it can while the suffix still matches.
+        #expect(file.match("/files/archive.tar.json") == ["name": "archive.tar"])
+        #expect(file.match("/files/a%20b.json") == ["name": "a b"])
+        #expect(file.match("/files/report.xml") == nil)
+        #expect(file.match("/files/.json") == nil)
+        #expect(file.match("/files/report.json/extra") == nil)
+
+        let action = try RoutePattern(parsing: "/users/{id}:activate")
+        #expect(action.match("/users/u1:activate") == ["id": "u1"])
+        #expect(action.match("/users/u1") == nil)
+
+        let dated = try RoutePattern(parsing: "/reports/{year}-{month}")
+        #expect(dated.parameterNames == ["year", "month"])
+        #expect(dated.match("/reports/2026-10") == ["year": "2026", "month": "10"])
+
+        let prefixed = try RoutePattern(parsing: "/v{version}/ping")
+        #expect(prefixed.match("/v2/ping") == ["version": "2"])
+        #expect(prefixed.match("/x2/ping") == nil)
+    }
+
+    @Test func adjacentParametersAreRejectedNotMisparsed() {
+        do {
+            _ = try RoutePattern(parsing: "/a/{x}{y}")
+            Issue.record("Expected a configuration error")
+        } catch let error as MockError {
+            #expect(error.category == .configuration)
+            #expect(error.message.contains("'{x}' and '{y}' next to each other"))
+        } catch {
+            Issue.record("Expected a MockError, got \(error)")
+        }
+    }
+
+    @Test func partlyLiteralSegmentsRankBetweenLiteralsAndParameters() throws {
+        let literal = try RoutePattern(parsing: "/files/index.json")
+        let mixed = try RoutePattern(parsing: "/files/{name}.json")
+        let parameter = try RoutePattern(parsing: "/files/{id}")
+        #expect(RoutePattern.moreSpecific(literal, mixed))
+        #expect(RoutePattern.moreSpecific(mixed, parameter))
+        #expect(!RoutePattern.moreSpecific(parameter, mixed))
+    }
+
+    @Test func templatesWithTheSameShapeDifferOnlyInParameterNames() throws {
+        #expect(try RoutePattern(parsing: "/users/{id}").shape == RoutePattern(parsing: "/users/{userId}").shape)
+        #expect(try RoutePattern(parsing: "/users/{id}").shape != RoutePattern(parsing: "/users/{id}.json").shape)
+        #expect(try RoutePattern(parsing: "/").shape == "/")
+    }
+
+    @Test func specPathsAndEndpointsMayUsePartialSegments() async throws {
+        let yaml = """
+            openapi: 3.0.3
+            info: {title: Files, version: 1.0.0}
+            paths:
+              /files/{name}.json:
+                parameters:
+                  - {name: name, in: path, required: true, schema: {type: string}}
+                get:
+                  responses:
+                    '200':
+                      description: a file
+                      content:
+                        application/json:
+                          example: {kind: json}
+            """
+        let engine = try await MockRESTEngine(spec: .yaml(yaml)) {
+            Post("/users/{id}:activate") { req, _ in .ok(["activated": .string(req.pathParam("id"))]) }
+        }
+        let file = await engine.execute(RESTRequest(method: "GET", path: "/files/report.json"))
+        #expect(file.body?["kind"] == .string("json"))
+        #expect(await engine.execute(RESTRequest(method: "GET", path: "/files/report.xml")).status == 404)
+        let activated = await engine.execute(RESTRequest(method: "POST", path: "/users/u7:activate"))
+        #expect(activated.body?["activated"] == .string("u7"))
     }
 }
 
