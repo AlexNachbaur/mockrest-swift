@@ -112,6 +112,13 @@ struct SpecParameter: Sendable {
     /// `"path"`, `"query"`, or `"header"` (cookie parameters are accepted but not modeled).
     var location: String
     var required: Bool
+
+    /// What makes two declarations the same parameter: OpenAPI's (`name`, `in`) pair, with
+    /// header names compared case-insensitively. An operation's parameter replaces the path
+    /// item's with the same key.
+    var overrideKey: String {
+        "\(location):\(location == "header" ? name.lowercased() : name)"
+    }
 }
 
 /// A resource collection: what wires records in the store to CRUD routes.

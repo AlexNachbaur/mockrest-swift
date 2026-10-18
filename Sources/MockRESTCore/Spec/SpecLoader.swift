@@ -278,8 +278,13 @@ struct SpecLoader {
         guard let fields = value.objectValue else {
             throw error("Operation must be a mapping", at: path)
         }
-        var parameters = sharedParameters
-        parameters.append(contentsOf: try parseParameters(fields["parameters"], at: "\(path).parameters"))
+        // OpenAPI: an operation parameter replaces a path-item parameter with the same name and
+        // location, so the path-level copy must not go on being enforced (header names compare
+        // case-insensitively, as HTTP does).
+        let own = try parseParameters(fields["parameters"], at: "\(path).parameters")
+        let overridden = Set(own.map(\.overrideKey))
+        var parameters = sharedParameters.filter { !overridden.contains($0.overrideKey) }
+        parameters.append(contentsOf: own)
 
         // Every {param} in the template must be declared as an `in: path` parameter.
         let declaredPathParams = parameters.filter { $0.location == "path" }.map(\.name)

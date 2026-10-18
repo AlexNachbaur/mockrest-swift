@@ -292,6 +292,42 @@ import Testing
         #expect(complete.status == 200)
     }
 
+    /// OpenAPI: an operation-level parameter with the same `name` and `in` replaces the path
+    /// item's. The path-level copy must not go on being enforced underneath it.
+    @Test func operationParametersOverridePathLevelOnes() async throws {
+        let spec = """
+            openapi: 3.0.3
+            info: {title: Things, version: 1.0.0}
+            paths:
+              /things:
+                parameters:
+                  - {name: tenant, in: query, required: true, schema: {type: string}}
+                  - {name: X-Region, in: header, required: true, schema: {type: string}}
+                  - {name: page, in: query, required: true, schema: {type: integer}}
+                get:
+                  parameters:
+                    - {name: tenant, in: query, required: false, schema: {type: string}}
+                    - {name: x-region, in: header, required: false, schema: {type: string}}
+                    - {name: page, in: header, schema: {type: integer}}
+                  responses:
+                    '200':
+                      description: list
+                      content:
+                        application/json:
+                          example: {items: []}
+            """
+        let engine = try await MockRESTEngine(spec: .yaml(spec))
+        // tenant and X-Region are optional on the operation (header names match
+        // case-insensitively); `page` in a header does not replace `page` in the query, so the
+        // path-level requirement for the query parameter still stands.
+        let missingPage = await engine.execute(RESTRequest(method: "GET", path: "/things"))
+        #expect(missingPage.status == 400)
+        #expect(firstError(missingPage).message == "Missing required query parameter 'page'")
+
+        let withPage = await engine.execute(RESTRequest(method: "GET", path: "/things", query: [("page", "1")]))
+        #expect(withPage.status == 200)
+    }
+
     @Test func aHandWrittenEndpointDecidesItsOwnParameters() async throws {
         let engine = try await MockRESTEngine(spec: .yaml(Self.orderSpec)) {
             Get("/search") { _, _ in .ok(["custom": true]) }

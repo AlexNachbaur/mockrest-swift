@@ -74,7 +74,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Request validation now reaches all the way down: `required` is enforced on nested objects
   and array elements of POST/PUT bodies, an object in a `oneOf`/`anyOf` position is validated
   against the variant it matches (it was always a `422`), and requests missing a
-  `required: true` query or header parameter get a `400` naming it.
+  `required: true` query or header parameter get a `400` naming it. As OpenAPI says, an
+  operation's parameter replaces the path item's with the same name and `in` (header names
+  case-insensitive), so a path-level `required: true` an operation relaxes is not enforced.
 - A request whose task is cancelled while waiting out `.delay(_)` no longer runs its handler;
   it returns `503` without touching state.
 - The `Location` header of a create percent-encodes ids that are not plain path segments.
