@@ -426,6 +426,51 @@ import Testing
         #expect(second.body == first.body)
     }
 
+    /// A `$ref` to an array schema is followed, so a schema that reaches itself through arrays
+    /// (directly or via another) must still end: each hop spends depth, and the walk stops with
+    /// `null` at the limit instead of overflowing the stack.
+    @Test func selfReferentialArraySchemasSynthesizeToABoundedDepth() async throws {
+        let spec = """
+            openapi: 3.0.3
+            info: {title: Trees, version: 1.0.0}
+            paths:
+              /tree:
+                get:
+                  responses:
+                    '200':
+                      description: a tree
+                      content:
+                        application/json:
+                          schema: {$ref: '#/components/schemas/Tree'}
+              /forest:
+                get:
+                  responses:
+                    '200':
+                      description: mutually recursive
+                      content:
+                        application/json:
+                          schema: {$ref: '#/components/schemas/Forest'}
+            components:
+              schemas:
+                Tree: {type: array, items: {$ref: '#/components/schemas/Tree'}}
+                Forest: {type: array, items: {$ref: '#/components/schemas/Grove'}}
+                Grove: {type: array, items: {$ref: '#/components/schemas/Forest'}}
+            """
+        let engine = try await MockRESTEngine(spec: .yaml(spec))
+        for path in ["/tree", "/forest"] {
+            let response = await engine.execute(RESTRequest(method: "GET", path: path))
+            #expect(response.status == 200)
+            var depth = 0
+            var level = try #require(response.body)
+            while case .list(let items) = level, let first = items.first {
+                depth += 1
+                level = first
+            }
+            #expect(level == .null)
+            #expect(depth <= 4)
+        }
+    }
+
     @Test func synthesizedResponsesFollowScalarRefs() async throws {
         let engine = try await MockRESTEngine(spec: .yaml(Self.scalarRefSpec), serverSeed: 3)
         let count = await engine.execute(RESTRequest(method: "GET", path: "/open-count"))

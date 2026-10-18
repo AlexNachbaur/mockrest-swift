@@ -199,9 +199,11 @@ struct ResponseSynthesizer: Sendable {
             }
             guard let target, depth > 0 else { return .null }
             guard case .object(let properties, _, _) = target.node else {
-                // A `$ref` to a scalar, enum, or array schema: synthesize the shape it names.
+                // A `$ref` to a scalar, enum, or array schema: synthesize the shape it names. The
+                // hop spends depth, so a schema that reaches itself through arrays
+                // (`Tree: {type: array, items: {$ref: Tree}}`) ends in `null` at the limit.
                 return synthesize(
-                    node: target.node, pseudoType: pseudoType, fieldName: fieldName, data: data, depth: depth)
+                    node: target.node, pseudoType: pseudoType, fieldName: fieldName, data: data, depth: depth - 1)
             }
             var result: [String: MockValue] = [:]
             for (propertyName, property) in properties {

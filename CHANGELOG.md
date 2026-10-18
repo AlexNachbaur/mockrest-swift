@@ -41,7 +41,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unknown field. Objects that declare `properties` and do not opt in stay closed, so seed and
   request typos still get their "did you mean" diagnostic.
 - Omitted fields typed by a `$ref` to a scalar, enum, or array schema are generated like the
-  schema they name instead of being served as `null`.
+  schema they name instead of being served as `null`, in stored records and synthesized
+  responses alike. A schema that reaches itself through arrays
+  (`Tree: {type: array, items: {$ref: Tree}}`) is synthesized to the same depth limit as
+  embedded records, ending in `null`.
 - List endpoints no longer treat every unknown query parameter as a filter. `?page=1`,
   `?include=owner`, or a cache-buster used to match no record and return `[]`; a parameter is
   now a filter only when it names a field of the collection.
