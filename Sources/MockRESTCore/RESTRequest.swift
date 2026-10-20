@@ -1,3 +1,4 @@
+import Foundation
 import MockCore
 
 /// The REST view of an incoming request, handed to endpoint handlers.
@@ -11,6 +12,11 @@ public struct RESTRequest: Sendable {
     /// All request headers, in wire order. Use ``header(_:)`` for case-insensitive lookup.
     public let headers: [(name: String, value: String)]
     /// The JSON request body as a value tree; `.null` when the request had no body.
+    ///
+    /// Over HTTP, a body that is not JSON, is not labelled as JSON, and does not open like JSON
+    /// (a form post, a plain-text upload) arrives as a `.string` holding the raw text, so a
+    /// hand-written endpoint can parse it. A malformed JSON body is refused with a `400`
+    /// before any handler runs.
     public let body: MockValue
     /// Values extracted from the matched route's path template (`/users/{id}` → `["id": …]`).
     public let pathParams: [String: String]
@@ -34,8 +40,10 @@ public struct RESTRequest: Sendable {
 
     /// The value of a path parameter from the matched route template.
     ///
-    /// Returns `""` for a parameter the template does not declare — route validation at startup
-    /// makes that a programmer error, not a runtime surprise.
+    /// Returns `""` for a name the matched template does not declare. Nothing checks the names
+    /// a handler asks for against its template, so a typo here (`"userID"` for `{userId}`)
+    /// reads as an empty string rather than failing — compare against ``pathParams`` when in
+    /// doubt.
     public func pathParam(_ name: String) -> String {
         pathParams[name] ?? ""
     }

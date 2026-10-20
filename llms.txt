@@ -11,6 +11,10 @@ NIO-free engine). Test-time tool only. Built on the MockCore platform: register 
 a shared `MockHost` next to MockQL and both protocols answer one port with one shared state
 store.
 
+## Integration
+
+- [AI agent integration guide](https://raw.githubusercontent.com/AlexNachbaur/mockrest-swift/main/docs/agents/integration-guide.md): self-contained instructions, the canonical XCUITest pattern, rules that prevent the common failures, and an error→fix table
+
 ## Reference
 
 - [README](https://raw.githubusercontent.com/AlexNachbaur/mockrest-swift/main/README.md): overview, quick start, seeding, installation

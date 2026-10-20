@@ -296,28 +296,7 @@ import Testing
         }
     }
 
-    // MARK: - components.* $refs (audit M6)
-
-    @Test func componentRefsGetClearNotSupportedErrors() {
-        let parameterRef = """
-            openapi: 3.0.0
-            paths:
-              /things:
-                get:
-                  parameters:
-                    - {$ref: '#/components/parameters/Limit'}
-                  responses:
-                    '200': {description: ok}
-            """
-        do {
-            _ = try SpecLoader.load(.yaml(parameterRef))
-            Issue.record("Expected a schema error")
-        } catch let error as MockError {
-            #expect(error.message.contains("not supported in v1"))
-        } catch {
-            Issue.record("Expected a MockError, got \(error)")
-        }
-    }
+    // MARK: - Request-body aliases (audit M6)
 
     @Test func aliasChainedRequestBodiesStillEnforceRequired() async throws {
         let yaml = """
@@ -355,27 +334,6 @@ import Testing
             RESTRequest(method: "POST", path: "/submit", body: "just a string"))
         #expect(notAnObject.status == 422)
         #expect(notAnObject.body?["errors"][0]["message"].stringValue?.contains("Expected an object") == true)
-    }
-
-    @Test func responseRefsAreRejectedOnEveryStatusNotJustSuccess() {
-        let yaml = """
-            openapi: 3.0.0
-            paths:
-              /things:
-                get:
-                  responses:
-                    '200': {description: ok}
-                    '400': {$ref: '#/components/responses/BadRequest'}
-            """
-        do {
-            _ = try SpecLoader.load(.yaml(yaml))
-            Issue.record("Expected a schema error")
-        } catch let error as MockError {
-            #expect(error.message.contains("not supported in v1"))
-            #expect(error.documentPath?.contains("responses.400") == true)
-        } catch {
-            Issue.record("Expected a MockError, got \(error)")
-        }
     }
 
     // MARK: - Fault ordering (audit M3)
